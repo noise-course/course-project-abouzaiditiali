@@ -2,7 +2,7 @@
 
 ## Project Participants
 
-Format the following information in a markdown table:
+  Format the following information in a markdown table:
 
 * First Name, Last Name
 * cnet ID
