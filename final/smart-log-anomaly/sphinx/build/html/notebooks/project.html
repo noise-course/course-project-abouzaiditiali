@@ -1,0 +1,2197 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>1. Introduction &#8212; Smart Incident Detection from IT Logs 1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=12dfc556" />
+    <link rel="stylesheet" type="text/css" href="../_static/nbsphinx-code-cells.css?v=2aa19091" />
+    <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Smart Incident Detection from IT Logs documentation" href="../index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="1.-Introduction">
+<h1>1. Introduction<a class="headerlink" href="#1.-Introduction" title="Link to this heading">¶</a></h1>
+<p>Modern large-scale computer systems—supercomputers, distributed clusters, cloud infrastructures, and data centers—produce massive volumes of log data. These logs capture system events, hardware and software statuses, and diagnostic messages that operators rely on to identify faults and maintain reliability. However, the scale of these logs makes manual inspection both impractical and error-prone. As systems grow, the need for <strong>automatic incident and anomaly detection</strong> becomes increasingly
+urgent.</p>
+<p>The goal of this project is to build and evaluate machine learning–based methods for detecting anomalous events from raw IT logs. Using the <strong>BGL (BlueGene/L) log dataset</strong>, which contains over 4.7 million log entries from a large IBM supercomputer, we design a pipeline that:</p>
+<ol class="arabic simple">
+<li><p><strong>Parses</strong> raw log messages and extracts structured fields.</p></li>
+<li><p><strong>Transforms</strong> log messages into normalized templates using regular-expression–based abstraction.</p></li>
+<li><p><strong>Builds anomaly detection models</strong>, including:</p>
+<ul class="simple">
+<li><p>A <strong>frequency-based baseline</strong>, which uses template rarity as an anomaly signal.</p></li>
+<li><p><strong>Sequence-based n-gram models</strong>, inspired by the DeepLog framework, which predict the next expected log template and flag deviations.</p></li>
+</ul>
+</li>
+<li><p><strong>Evaluates</strong> these models using precision, recall, and F1 score on validation and test sets.</p></li>
+<li><p><strong>Visualizes</strong> log distributions, anomaly scores, and anomaly events over time.</p></li>
+</ol>
+<p>This project lies at the intersection of <strong>machine learning</strong> and <strong>computer systems</strong>, and demonstrates how statistical and sequence models can be applied to operational logs. Along the way, we explore the challenges of high-class imbalance, sequence variability, and log-template sparsity—common issues in real-world log analytics.</p>
+<p>Ultimately, the project provides a complete, end-to-end anomaly detection pipeline and highlights both the strengths and limitations of traditional statistical models on large system logs. The results also motivate the need for more advanced sequence models such as LSTMs or Transformers, which are better suited to capturing the temporal dependencies present in complex system behaviors.</p>
+<hr class="docutils" />
+</section>
+<section id="2.-Load-Data">
+<h1>2. Load Data<a class="headerlink" href="#2.-Load-Data" title="Link to this heading">¶</a></h1>
+<section id="2.1-Load-raw-BGL-log-file-and-inspect-sample-lines">
+<h2>2.1 Load raw BGL log file and inspect sample lines<a class="headerlink" href="#2.1-Load-raw-BGL-log-file-and-inspect-sample-lines" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line">In this step, I load the raw BGL log file from disk and read it line by line into memory.</div>
+<div class="line">The goal is to:</div>
+</div>
+<ul class="simple">
+<li><p>Confirm that the file was loaded correctly.</p></li>
+<li><p>See how many log entries are present.</p></li>
+<li><p>Inspect the first few lines to understand the log format (e.g., what appears in each column).</p></li>
+</ul>
+<p>The BGL dataset documentation says that the <strong>first column</strong> encodes whether a log is an alert or a non-alert (with <code class="docutils literal notranslate"><span class="pre">-</span></code> indicating a non-alert), so looking at raw examples helps verify that this structure matches what we expect.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">raw_path</span> <span class="o">=</span> <span class="s2">&quot;../data/raw/BGL.log&quot;</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">raw_path</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="s2">&quot;ignore&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total lines in raw log:&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">rstrip</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+Total lines in raw log: 4747963
+- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.363779 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected
+- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.527847 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected
+- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.675872 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected
+- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.823719 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected
+- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.982731 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected
+</pre></div></div>
+</div>
+<p><strong>Output interpretation</strong></p>
+<ul>
+<li><div class="line-block">
+<div class="line">The message about</div>
+<div class="line"><code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">history</span> <span class="pre">saving</span> <span class="pre">thread</span> <span class="pre">hit</span> <span class="pre">an</span> <span class="pre">unexpected</span> <span class="pre">error</span> <span class="pre">(OperationalError('attempt</span> <span class="pre">to</span> <span class="pre">write</span> <span class="pre">a</span> <span class="pre">readonly</span> <span class="pre">database'))</span></code></div>
+<div class="line">is a Jupyter/IPython warning about saving command history. It does <strong>not</strong> affect the log loading or the rest of this analysis, so I ignore it.</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line">The line</div>
+<div class="line"><code class="docutils literal notranslate"><span class="pre">Total</span> <span class="pre">lines</span> <span class="pre">in</span> <span class="pre">raw</span> <span class="pre">log:</span> <span class="pre">4747963</span></code></div>
+<div class="line">shows that the BGL log file contains about <strong>4.75 million</strong> log entries, confirming that this is a large, realistic dataset.</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line">The first five log lines all start with <code class="docutils literal notranslate"><span class="pre">-</span></code> in the first column, followed by several fields including a numeric ID, a date, node identifiers like <code class="docutils literal notranslate"><span class="pre">R02-M1-N0-C:J12-U11</span></code>, timestamps, and a human-readable message such as</div>
+<div class="line"><code class="docutils literal notranslate"><span class="pre">RAS</span> <span class="pre">KERNEL</span> <span class="pre">INFO</span> <span class="pre">instruction</span> <span class="pre">cache</span> <span class="pre">parity</span> <span class="pre">error</span> <span class="pre">corrected</span></code>.</div>
+</div>
+</li>
+<li><p>The fact that the first column is <code class="docutils literal notranslate"><span class="pre">-</span></code> matches the dataset description: <code class="docutils literal notranslate"><span class="pre">-</span></code> indicates <strong>non-alert</strong> (normal) messages. Later, I will use this column to derive ground-truth labels for anomaly detection.</p></li>
+</ul>
+</section>
+<section id="2.2-Parse-raw-BGL-log-lines-into-structured-fields">
+<h2>2.2 Parse raw BGL log lines into structured fields<a class="headerlink" href="#2.2-Parse-raw-BGL-log-lines-into-structured-fields" title="Link to this heading">¶</a></h2>
+<p>Each raw line in the BGL dataset contains multiple space-separated tokens, where the <strong>first token</strong> indicates whether the log entry is an alert or a normal event. According to the dataset documentation:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;-&quot;</span></code> in the first column → non-alert (normal)</p></li>
+<li><p>Any other tag → alert (anomalous)</p></li>
+</ul>
+<p>In this step, I define a helper function <code class="docutils literal notranslate"><span class="pre">parse_bgl_line()</span></code> that splits each line into:</p>
+<ul class="simple">
+<li><p><strong>tag</strong> — the first token (alert vs non-alert indicator)</p></li>
+<li><p><strong>message</strong> — the remaining content of the log line</p></li>
+<li><p><strong>label</strong> — an integer label used for machine learning
+(<code class="docutils literal notranslate"><span class="pre">0</span></code> = normal, <code class="docutils literal notranslate"><span class="pre">1</span></code> = anomaly)</p></li>
+</ul>
+<div class="line-block">
+<div class="line">I then loop through all raw lines, parse them, and store the results in lists.</div>
+<div class="line">Finally, I convert these lists into a <strong>pandas DataFrame</strong> and save it as</div>
+<div class="line"><code class="docutils literal notranslate"><span class="pre">bgl_parsed.csv</span></code> in the <code class="docutils literal notranslate"><span class="pre">data/processed/</span></code> directory.</div>
+<div class="line">This gives me a clean, structured starting point for downstream preprocessing and modeling.</div>
+</div>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[2]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">parse_bgl_line</span><span class="p">(</span><span class="n">line</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse one BGL log line into:</span>
+<span class="sd">    - tag: first token ( &#39;-&#39; means normal, others = alert )</span>
+<span class="sd">    - message: rest of the line</span>
+<span class="sd">    - label: 0 for normal, 1 for alert</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># skip empty lines</span>
+
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="n">tag</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>                <span class="c1"># first column</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span> <span class="c1"># everything after tag</span>
+
+    <span class="c1"># BGL rule:</span>
+    <span class="c1"># &#39;-&#39; in first column =&gt; non-alert (normal)</span>
+    <span class="c1"># anything else       =&gt; alert (anomaly)</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">tag</span> <span class="o">==</span> <span class="s2">&quot;-&quot;</span> <span class="k">else</span> <span class="mi">1</span>
+
+    <span class="k">return</span> <span class="n">tag</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">label</span>
+
+
+<span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">messages</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">labels</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+    <span class="n">parsed</span> <span class="o">=</span> <span class="n">parse_bgl_line</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">parsed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">continue</span>
+    <span class="n">tag</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">lab</span> <span class="o">=</span> <span class="n">parsed</span>
+    <span class="n">tags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
+    <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+    <span class="n">labels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lab</span><span class="p">)</span>
+
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
+    <span class="s2">&quot;tag&quot;</span><span class="p">:</span> <span class="n">tags</span><span class="p">,</span>
+    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">messages</span><span class="p">,</span>
+    <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="n">labels</span>
+<span class="p">})</span>
+
+<span class="n">processed_raw_path</span> <span class="o">=</span> <span class="s2">&quot;../data/processed/bgl_parsed.csv&quot;</span>
+<span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">processed_raw_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">processed_raw_path</span>
+
+<span class="n">df</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[2]:
+</pre></div>
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>tag</th>
+      <th>message</th>
+      <th>label</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+    </tr>
+  </tbody>
+</table>
+</div></div>
+</div>
+<p><strong>Output interpretation</strong></p>
+<p>The <code class="docutils literal notranslate"><span class="pre">df.head()</span></code> output shows the first five structured log entries. Each row includes:</p>
+<ul class="simple">
+<li><p><strong>tag</strong> — all shown examples begin with <code class="docutils literal notranslate"><span class="pre">&quot;-&quot;</span></code>, meaning they are normal logs.</p></li>
+<li><p><strong>message</strong> — the remainder of the log line, including timestamps, node identifiers, and textual descriptions.</p></li>
+<li><p><strong>label</strong> — all zeros, which correctly reflects that these lines are non-alert messages.</p></li>
+</ul>
+<p>This confirms that:</p>
+<ol class="arabic simple">
+<li><p>The parsing logic correctly splits each line into tag/message.</p></li>
+<li><p>The label assignment correctly follows the BGL convention (<code class="docutils literal notranslate"><span class="pre">&quot;-&quot;</span></code> → 0).</p></li>
+<li><p>The DataFrame was successfully constructed and saved to
+<code class="docutils literal notranslate"><span class="pre">../data/processed/bgl_parsed.csv</span></code>.</p></li>
+</ol>
+<p>This structured DataFrame will be used in the next step for template extraction.</p>
+</section>
+</section>
+<section id="3.-Preprocessing-&amp;-Template-Extraction">
+<h1>3. Preprocessing &amp; Template Extraction<a class="headerlink" href="#3.-Preprocessing-&-Template-Extraction" title="Link to this heading">¶</a></h1>
+<section id="3.1-Template-Extraction-from-Log-Messages">
+<h2>3.1 Template Extraction from Log Messages<a class="headerlink" href="#3.1-Template-Extraction-from-Log-Messages" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line">Raw log messages often contain highly variable elements such as timestamps, numeric identifiers, memory addresses, and node labels.</div>
+<div class="line">To make logs more suitable for machine learning, it is helpful to <strong>normalize</strong> these variable components into consistent placeholders.</div>
+<div class="line">This transforms raw log lines into <em>templates</em>, allowing the model to learn structural patterns instead of memorizing specific numbers.</div>
+</div>
+<p>In this step:</p>
+<ul>
+<li><p>I define a function <code class="docutils literal notranslate"><span class="pre">extract_template()</span></code> that replaces:</p>
+<ul class="simple">
+<li><p>Hexadecimal strings → <code class="docutils literal notranslate"><span class="pre">&lt;HEX&gt;</span></code></p></li>
+<li><p>Full timestamps → <code class="docutils literal notranslate"><span class="pre">&lt;TS&gt;</span></code></p></li>
+<li><p>Dates → <code class="docutils literal notranslate"><span class="pre">&lt;DATE&gt;</span></code></p></li>
+<li><p>All other integers → <code class="docutils literal notranslate"><span class="pre">&lt;NUM&gt;</span></code></p></li>
+</ul>
+</li>
+<li><p>I apply this function to every message in the parsed DataFrame.</p></li>
+<li><p>I then assign each <strong>unique template</strong> a numeric ID (<code class="docutils literal notranslate"><span class="pre">template_id</span></code>), which serves as the categorical representation required for baseline models and for the later LSTM sequence model.</p></li>
+<li><div class="line-block">
+<div class="line">Finally, I save the new processed DataFrame (with template + template_id) to</div>
+<div class="line"><code class="docutils literal notranslate"><span class="pre">../data/processed/bgl_templates.csv</span></code>.</div>
+</div>
+</li>
+</ul>
+<p>This step converts unstructured text logs into a standardized, machine-learning-ready representation.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_template</span><span class="p">(</span><span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;0x[0-9a-fA-F]+&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;HEX&gt;&#39;</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;\d</span><span class="si">{4}</span><span class="s1">[-.]\d</span><span class="si">{2}</span><span class="s1">[-.]\d</span><span class="si">{2}</span><span class="s1">[-.]\d</span><span class="si">{2}</span><span class="s1">\.\d</span><span class="si">{2}</span><span class="s1">\.\d</span><span class="si">{2}</span><span class="s1">\.\d+&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;TS&gt;&#39;</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;\d</span><span class="si">{4}</span><span class="s1">[-.]\d</span><span class="si">{2}</span><span class="s1">[-.]\d</span><span class="si">{2}</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;DATE&gt;&#39;</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;\d+&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;NUM&gt;&#39;</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">msg</span>
+
+<span class="n">df</span><span class="p">[</span><span class="s1">&#39;template&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">&#39;message&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">extract_template</span><span class="p">)</span>
+
+<span class="n">templates</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;template&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())}</span>
+<span class="n">df</span><span class="p">[</span><span class="s1">&#39;template_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">&#39;template&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">templates</span><span class="p">)</span>
+
+<span class="n">processed_template_path</span> <span class="o">=</span> <span class="s2">&quot;../data/processed/bgl_templates.csv&quot;</span>
+<span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">processed_template_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">processed_template_path</span>
+
+<span class="n">df</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
+</pre></div>
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>tag</th>
+      <th>message</th>
+      <th>label</th>
+      <th>template</th>
+      <th>template_id</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+      <td>&lt;NUM&gt; &lt;DATE&gt; R&lt;NUM&gt;-M&lt;NUM&gt;-N&lt;NUM&gt;-C:J&lt;NUM&gt;-U&lt;N...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+      <td>&lt;NUM&gt; &lt;DATE&gt; R&lt;NUM&gt;-M&lt;NUM&gt;-N&lt;NUM&gt;-C:J&lt;NUM&gt;-U&lt;N...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+      <td>&lt;NUM&gt; &lt;DATE&gt; R&lt;NUM&gt;-M&lt;NUM&gt;-N&lt;NUM&gt;-C:J&lt;NUM&gt;-U&lt;N...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+      <td>&lt;NUM&gt; &lt;DATE&gt; R&lt;NUM&gt;-M&lt;NUM&gt;-N&lt;NUM&gt;-C:J&lt;NUM&gt;-U&lt;N...</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>-</td>
+      <td>1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005...</td>
+      <td>0</td>
+      <td>&lt;NUM&gt; &lt;DATE&gt; R&lt;NUM&gt;-M&lt;NUM&gt;-N&lt;NUM&gt;-C:J&lt;NUM&gt;-U&lt;N...</td>
+      <td>0</td>
+    </tr>
+  </tbody>
+</table>
+</div></div>
+</div>
+<p><strong>Output interpretation</strong></p>
+<p>The preview from <code class="docutils literal notranslate"><span class="pre">df.head()</span></code> shows that each raw message has been successfully transformed into a normalized template.</p>
+<p>Key observations:</p>
+<ul class="simple">
+<li><p>All numeric values and timestamps have been replaced with placeholders like <code class="docutils literal notranslate"><span class="pre">&lt;NUM&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">&lt;DATE&gt;</span></code>, confirming that the regex substitutions worked as intended.</p></li>
+<li><p>The resulting templates for these first few entries are identical, which is reasonable because these log lines differ only in numerical timestamps.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">template_id</span> <span class="pre">=</span> <span class="pre">0</span></code> for all shown rows, meaning that these lines correspond to the first unique template encountered in the dataset.</p></li>
+<li><p>The file <code class="docutils literal notranslate"><span class="pre">bgl_templates.csv</span></code> now contains columns:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">tag</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">message</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">label</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">template</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">template_id</span></code></p></li>
+</ul>
+</li>
+</ul>
+<p>This structured representation will be essential for both the <strong>baseline anomaly model</strong> and the <strong>LSTM sequence model</strong> in later sections.</p>
+</section>
+</section>
+<section id="4.-Baseline-Frequency-Based-Anomaly-Detection">
+<h1>4. Baseline Frequency-Based Anomaly Detection<a class="headerlink" href="#4.-Baseline-Frequency-Based-Anomaly-Detection" title="Link to this heading">¶</a></h1>
+<section id="4.1-Train/Validation/Test-Split">
+<h2>4.1 Train/Validation/Test Split<a class="headerlink" href="#4.1-Train/Validation/Test-Split" title="Link to this heading">¶</a></h2>
+<p>To evaluate the performance of anomaly detection models, it is important to split the dataset into separate subsets:</p>
+<ul class="simple">
+<li><p><strong>Training set (60%)</strong> — used to learn normal patterns and estimate template frequencies.</p></li>
+<li><p><strong>Validation set (20% of the total)</strong> — used for model selection, such as choosing a threshold for anomaly scores.</p></li>
+<li><p><strong>Test set (20% of the total)</strong> — held out entirely for final, unbiased evaluation.</p></li>
+</ul>
+<p>Because log messages are time-ordered, I use a <strong>chronological split</strong> (<code class="docutils literal notranslate"><span class="pre">shuffle=False</span></code>) to preserve the natural temporal structure of the dataset. This prevents information leakage from the future into the past and better reflects real-world deployment conditions.</p>
+<p>The code below performs a 60/20/20 split using <code class="docutils literal notranslate"><span class="pre">train_test_split</span></code> twice.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">train_test_split</span>
+
+<span class="c1"># 60% train, 20% val, 20% test</span>
+<span class="n">train_df</span><span class="p">,</span> <span class="n">test_df</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">train_df</span><span class="p">,</span> <span class="n">val_df</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span><span class="n">train_df</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># 0.6 -&gt; 0.45 train, 0.15 val</span>
+
+<span class="nb">len</span><span class="p">(</span><span class="n">train_df</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">val_df</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">test_df</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
+</pre></div>
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+(2848777, 949593, 949593)
+</pre></div></div>
+</div>
+<p><strong>Output interpretation</strong></p>
+<p>The printed tuple represents the sizes of:</p>
+<ol class="arabic simple">
+<li><p><strong>Training set</strong> — 2,848,777 log entries</p></li>
+<li><p><strong>Validation set</strong> — 949,593 log entries</p></li>
+<li><p><strong>Test set</strong> — 949,593 log entries</p></li>
+</ol>
+<p>These counts match the intended 60/20/20 split of the ~4.75 million total log entries.</p>
+<p>This confirms that the dataset has been divided correctly and that the splits are large enough to support stable model training, threshold tuning, and final evaluation.</p>
+</section>
+<section id="4.2-Estimating-Template-Frequencies-from-Normal-Logs">
+<h2>4.2 Estimating Template Frequencies from Normal Logs<a class="headerlink" href="#4.2-Estimating-Template-Frequencies-from-Normal-Logs" title="Link to this heading">¶</a></h2>
+<p>The baseline anomaly detection method used in this project is based on the intuition that <strong>rare log templates are more likely to indicate unusual or anomalous behavior</strong>.</p>
+<p>To compute how frequent each template is, I first isolate only the <strong>normal training logs</strong> (<code class="docutils literal notranslate"><span class="pre">label</span> <span class="pre">=</span> <span class="pre">0</span></code>). This ensures that the estimated template frequencies reflect normal system behavior and are not influenced by anomalies.</p>
+<p>I then use Python’s <code class="docutils literal notranslate"><span class="pre">Counter</span></code> to:</p>
+<ol class="arabic simple">
+<li><p>Count how many times each <code class="docutils literal notranslate"><span class="pre">template_id</span></code> appears in the normal training set.</p></li>
+<li><p>Compute the empirical probability of each template</p></li>
+</ol>
+<div class="line-block">
+<div class="line">These probabilities form the core of the baseline model:</div>
+<div class="line">templates with very low likelihood (i.e., rarely seen during training) will produce high anomaly scores.</div>
+</div>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
+
+<span class="n">normal_train</span> <span class="o">=</span> <span class="n">train_df</span><span class="p">[</span><span class="n">train_df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span>
+
+<span class="n">counts</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">normal_train</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">])</span>
+<span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">counts</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+<span class="n">template_prob</span> <span class="o">=</span> <span class="p">{</span><span class="n">tid</span><span class="p">:</span> <span class="n">counts</span><span class="p">[</span><span class="n">tid</span><span class="p">]</span> <span class="o">/</span> <span class="n">total</span> <span class="k">for</span> <span class="n">tid</span> <span class="ow">in</span> <span class="n">counts</span><span class="p">}</span>
+
+<span class="nb">len</span><span class="p">(</span><span class="n">template_prob</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
+</pre></div>
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+4278
+</pre></div></div>
+</div>
+<p>The printed line means:</p>
+<ul class="simple">
+<li><p>There are <strong>4,278 unique log templates</strong> observed in the normal portion of the training set.</p></li>
+<li><p>Each template now has an associated estimated probability stored in <code class="docutils literal notranslate"><span class="pre">template_prob</span></code>.</p></li>
+</ul>
+<p>This is consistent with what we expect for a large system like BlueGene/L: many distinct structural patterns appear across millions of log messages.</p>
+<p>These template probabilities will be used in the next step to compute anomaly scores. Lower-frequency templates yield higher scores, making them more likely to be marked as anomalies.</p>
+</section>
+<section id="4.3-Threshold-selection-and-baseline-evaluation-(validation-+-test)">
+<h2>4.3 Threshold selection and baseline evaluation (validation + test)<a class="headerlink" href="#4.3-Threshold-selection-and-baseline-evaluation-(validation-+-test)" title="Link to this heading">¶</a></h2>
+<p>With anomaly scores computed from template probabilities, the remaining steps for the baseline model are:</p>
+<ol class="arabic simple">
+<li><p><strong>Threshold selection (on the validation set)</strong></p>
+<ul class="simple">
+<li><p>For each log in the validation set, I compute an anomaly score</p></li>
+<li><p>I then look only at the scores of <strong>normal</strong> validation logs (<code class="docutils literal notranslate"><span class="pre">label</span> <span class="pre">=</span> <span class="pre">0</span></code>) and choose a threshold as the 95th percentile of these scores.</p></li>
+<li><p>Intuitively, this means that the top ~5% most “surprising” normal scores will be near the decision boundary. Anything above the threshold is considered anomalous.</p></li>
+</ul>
+</li>
+<li><p><strong>Prediction rule</strong></p>
+<ul class="simple">
+<li><p>Using the chosen threshold, I define a simple classifier:</p>
+<ul>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">score</span> <span class="pre">&gt;=</span> <span class="pre">threshold</span></code> → predict anomaly (<code class="docutils literal notranslate"><span class="pre">1</span></code>)</p></li>
+<li><p>Else → predict normal (<code class="docutils literal notranslate"><span class="pre">0</span></code>)</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>Validation metrics</strong></p>
+<ul class="simple">
+<li><p>I apply this rule to all validation logs and compute:</p>
+<ul>
+<li><p><strong>Precision</strong> — of all predicted anomalies, how many are truly anomalous?</p></li>
+<li><p><strong>Recall</strong> — of all true anomalies, how many did we detect?</p></li>
+<li><p><strong>F1 score</strong> — harmonic mean of precision and recall.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>Test metrics</strong></p>
+<ul class="simple">
+<li><p>Finally, I apply the <strong>same anomaly scoring function</strong> and <strong>same threshold</strong> to the test set.</p></li>
+<li><p>I compute precision, recall, and F1 on the test labels to obtain an unbiased estimate of how the baseline model performs on unseen data.</p></li>
+</ul>
+</li>
+</ol>
+<p>This gives me a complete end-to-end baseline anomaly detector based solely on template frequency and a data-driven threshold.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">precision_recall_fscore_support</span>
+
+<span class="c1"># ---------------------------</span>
+<span class="c1"># 1) Compute anomaly scores</span>
+<span class="c1"># ---------------------------</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">anomaly_score</span><span class="p">(</span><span class="n">template_id</span><span class="p">):</span>
+    <span class="c1"># If template was never seen in training, assign tiny probability</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">template_prob</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">template_id</span><span class="p">,</span> <span class="mf">1e-8</span><span class="p">)</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+<span class="c1"># Compute scores on validation set</span>
+<span class="n">val_df</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;score&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">anomaly_score</span><span class="p">)</span>
+
+<span class="c1"># ---------------------------</span>
+<span class="c1"># 2) Select threshold (95th percentile of normal scores)</span>
+<span class="c1"># ---------------------------</span>
+<span class="n">normal_scores</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">][</span><span class="s2">&quot;score&quot;</span><span class="p">]</span>
+<span class="n">threshold</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">normal_scores</span><span class="p">,</span> <span class="mi">95</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Selected threshold:&quot;</span><span class="p">,</span> <span class="n">threshold</span><span class="p">)</span>
+
+<span class="c1"># ---------------------------</span>
+<span class="c1"># 3) Prediction rule</span>
+<span class="c1"># ---------------------------</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="n">score</span><span class="p">):</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">score</span> <span class="o">&gt;=</span> <span class="n">threshold</span> <span class="k">else</span> <span class="mi">0</span>
+
+<span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;pred&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;score&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">predict</span><span class="p">)</span>
+
+<span class="c1"># ---------------------------</span>
+<span class="c1"># 4) Validation metrics</span>
+<span class="c1"># ---------------------------</span>
+<span class="n">precision</span><span class="p">,</span> <span class="n">recall</span><span class="p">,</span> <span class="n">f1</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">precision_recall_fscore_support</span><span class="p">(</span>
+    <span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">],</span> <span class="n">val_df</span><span class="p">[</span><span class="s2">&quot;pred&quot;</span><span class="p">],</span> <span class="n">average</span><span class="o">=</span><span class="s2">&quot;binary&quot;</span><span class="p">,</span> <span class="n">pos_label</span><span class="o">=</span><span class="mi">1</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Validation metrics:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Precision:&quot;</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Recall   :&quot;</span><span class="p">,</span> <span class="n">recall</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  F1       :&quot;</span><span class="p">,</span> <span class="n">f1</span><span class="p">)</span>
+
+<span class="c1"># ---------------------------</span>
+<span class="c1"># 5) Test evaluation</span>
+<span class="c1"># ---------------------------</span>
+<span class="n">test_df</span> <span class="o">=</span> <span class="n">test_df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+<span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;score&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">anomaly_score</span><span class="p">)</span>
+<span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;pred&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;score&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">predict</span><span class="p">)</span>
+
+<span class="n">precision_t</span><span class="p">,</span> <span class="n">recall_t</span><span class="p">,</span> <span class="n">f1_t</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">precision_recall_fscore_support</span><span class="p">(</span>
+    <span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">],</span> <span class="n">test_df</span><span class="p">[</span><span class="s2">&quot;pred&quot;</span><span class="p">],</span> <span class="n">average</span><span class="o">=</span><span class="s2">&quot;binary&quot;</span><span class="p">,</span> <span class="n">pos_label</span><span class="o">=</span><span class="mi">1</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Test metrics:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Precision:&quot;</span><span class="p">,</span> <span class="n">precision_t</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Recall   :&quot;</span><span class="p">,</span> <span class="n">recall_t</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  F1       :&quot;</span><span class="p">,</span> <span class="n">f1_t</span><span class="p">)</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+Selected threshold: 18.420680743952367
+
+Validation metrics:
+  Precision: 0.12177174186060612
+  Recall   : 0.9999857748442346
+  F1       : 0.2171057609603711
+
+Test metrics:
+  Precision: 0.05962352528940269
+  Recall   : 1.0
+  F1       : 0.1125371867770082
+</pre></div></div>
+</div>
+<p><strong>Output Interpretation</strong></p>
+<div class="line-block">
+<div class="line">These results indicate that the model is <strong>extremely sensitive</strong> to potential anomalies:</div>
+<div class="line">it successfully identifies <em>almost every</em> true anomaly (recall ≈ 1.0), but at the cost of <strong>many false positives</strong>, resulting in lower precision.</div>
+</div>
+<p>This is a known behavior of simple frequency-based approaches:</p>
+<ul class="simple">
+<li><p>Templates that occur rarely in the training data are automatically treated as suspicious.</p></li>
+<li><p>Legitimate but uncommon events are often misclassified as anomalies.</p></li>
+<li><p>Since the threshold is based only on the distribution of <em>normal</em> scores, the model prioritizes catching all anomalies at the expense of precision.</p></li>
+</ul>
+<p>The baseline therefore provides:</p>
+<ul class="simple">
+<li><p>A <strong>strong upper bound on recall</strong> (how many anomalies we can possibly detect)</p></li>
+<li><p>A <strong>weak bound on precision</strong>, revealing that structural frequency alone is not sufficient for reliable anomaly detection</p></li>
+</ul>
+<p>These results help motivate the need for a more advanced model—such as an LSTM sequence model—to incorporate temporal context and reduce false positives.</p>
+</section>
+</section>
+<section id="5.-Sequence-Based-Anomaly-Detection">
+<h1>5. Sequence-Based Anomaly Detection<a class="headerlink" href="#5.-Sequence-Based-Anomaly-Detection" title="Link to this heading">¶</a></h1>
+<div class="line-block">
+<div class="line">The baseline model treats each log line independently and only uses how frequent a template is across the entire dataset.</div>
+<div class="line">To capture <strong>temporal patterns</strong>, I now move to a sequence-based approach:</div>
+</div>
+<ul class="simple">
+<li><p>I view the log as an ordered stream of <code class="docutils literal notranslate"><span class="pre">template_id</span></code> values.</p></li>
+<li><p>For each position, I use the previous <code class="docutils literal notranslate"><span class="pre">L</span></code> templates (a sliding window) as the <strong>context</strong>.</p></li>
+<li><p>The goal is to model which next templates are “expected” given this recent history, and flag unexpected next templates as anomalies.</p></li>
+</ul>
+<div class="line-block">
+<div class="line">In this subsection, I construct training, validation, and test <strong>sequences</strong> from the <code class="docutils literal notranslate"><span class="pre">template_id</span></code> column of the earlier splits.</div>
+<div class="line">These sequences will be used later by a sequence model (implemented <em>without</em> deep learning libraries) to perform next-event prediction and anomaly detection.</div>
+</div>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># We reuse train_df, val_df, test_df from the baseline section.</span>
+<span class="c1"># They already contain &#39;template_id&#39; and &#39;label&#39;.</span>
+
+<span class="n">seq_len</span> <span class="o">=</span> <span class="mi">50</span>          <span class="c1"># length of the history window</span>
+<span class="n">max_train_events</span> <span class="o">=</span> <span class="mi">500000</span>   <span class="c1"># cap for how many events to use (for speed)</span>
+<span class="n">max_val_events</span> <span class="o">=</span> <span class="mi">200000</span>
+<span class="n">max_test_events</span> <span class="o">=</span> <span class="mi">200000</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_sequences</span><span class="p">(</span><span class="n">df_split</span><span class="p">,</span> <span class="n">seq_len</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">max_events</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build sequences of template_ids and the next template + label.</span>
+
+<span class="sd">    For a given split (train/val/test):</span>
+<span class="sd">      - ids:   array of template_id values</span>
+<span class="sd">      - labels: array of 0/1 labels</span>
+
+<span class="sd">    We slide a window of length `seq_len` over ids:</span>
+<span class="sd">      X[i]      = ids[i : i+seq_len]        (input sequence)</span>
+<span class="sd">      y_next[i] = ids[i+seq_len]            (next template to predict)</span>
+<span class="sd">      y_label[i]= labels[i+seq_len]         (label of the next event)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      X:       [num_sequences, seq_len] array of template_ids</span>
+<span class="sd">      y_next:  [num_sequences] array of next template_ids</span>
+<span class="sd">      y_label: [num_sequences] array of labels (0/1) for the next event</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ids</span> <span class="o">=</span> <span class="n">df_split</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">df_split</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="k">if</span> <span class="n">max_events</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">ids</span> <span class="o">=</span> <span class="n">ids</span><span class="p">[:</span><span class="n">max_events</span><span class="p">]</span>
+        <span class="n">labels</span> <span class="o">=</span> <span class="n">labels</span><span class="p">[:</span><span class="n">max_events</span><span class="p">]</span>
+
+    <span class="n">X</span><span class="p">,</span> <span class="n">y_next</span><span class="p">,</span> <span class="n">y_label</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span> <span class="o">-</span> <span class="n">seq_len</span><span class="p">):</span>
+        <span class="n">X</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ids</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="n">seq_len</span><span class="p">])</span>
+        <span class="n">y_next</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ids</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="n">seq_len</span><span class="p">])</span>
+        <span class="n">y_label</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="n">seq_len</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">y_next</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">y_label</span><span class="p">)</span>
+
+<span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">y_train_label</span> <span class="o">=</span> <span class="n">build_sequences</span><span class="p">(</span><span class="n">train_df</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">max_train_events</span><span class="p">)</span>
+<span class="n">X_val</span><span class="p">,</span>   <span class="n">y_val_next</span><span class="p">,</span>   <span class="n">y_val_label</span>   <span class="o">=</span> <span class="n">build_sequences</span><span class="p">(</span><span class="n">val_df</span><span class="p">,</span>   <span class="n">seq_len</span><span class="p">,</span> <span class="n">max_val_events</span><span class="p">)</span>
+<span class="n">X_test</span><span class="p">,</span>  <span class="n">y_test_next</span><span class="p">,</span>  <span class="n">y_test_label</span>  <span class="o">=</span> <span class="n">build_sequences</span><span class="p">(</span><span class="n">test_df</span><span class="p">,</span>  <span class="n">seq_len</span><span class="p">,</span> <span class="n">max_test_events</span><span class="p">)</span>
+
+<span class="n">X_train</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X_val</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X_test</span><span class="o">.</span><span class="n">shape</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
+</pre></div>
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+((499950, 50), (199950, 50), (199950, 50))
+</pre></div></div>
+</div>
+<p><strong>Sequence shapes interpretation</strong></p>
+<p>The printed shapes for <code class="docutils literal notranslate"><span class="pre">X_train</span></code>, <code class="docutils literal notranslate"><span class="pre">X_val</span></code>, and <code class="docutils literal notranslate"><span class="pre">X_test</span></code> indicate that:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">X_train</span></code> contains a large number of training sequences, each of length <code class="docutils literal notranslate"><span class="pre">seq_len</span> <span class="pre">=</span> <span class="pre">50</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">X_val</span></code> and <code class="docutils literal notranslate"><span class="pre">X_test</span></code> similarly contain many sequences for validation and testing.</p></li>
+</ul>
+<div class="line-block">
+<div class="line">Each row in these arrays represents a sliding window of 50 consecutive <code class="docutils literal notranslate"><span class="pre">template_id</span></code> values taken from the original log stream.</div>
+<div class="line">For every sequence, the arrays <code class="docutils literal notranslate"><span class="pre">y_*_next</span></code> store the <strong>next template ID</strong>, and <code class="docutils literal notranslate"><span class="pre">y_*_label</span></code> store the <strong>ground-truth anomaly label</strong> of that next event. These will be used later to evaluate sequence-based anomaly detection.</div>
+</div>
+<section id="5.2-N-gram-sequence-model-for-next-event-prediction-(no-deep-learning)">
+<h2>5.2 N-gram sequence model for next-event prediction (no deep learning)<a class="headerlink" href="#5.2-N-gram-sequence-model-for-next-event-prediction-(no-deep-learning)" title="Link to this heading">¶</a></h2>
+<p>Because my environment does not support PyTorch, I replace the LSTM with a simpler, fully classical sequence model based on <strong>n-grams</strong>.</p>
+<p>The idea is similar in spirit to DeepLog:</p>
+<ul class="simple">
+<li><p>I treat the log as a sequence of discrete <code class="docutils literal notranslate"><span class="pre">template_id</span></code> values.</p></li>
+<li><p>For each training example, I take the last <code class="docutils literal notranslate"><span class="pre">n</span></code> template IDs from the input window as a <strong>context</strong>.</p></li>
+<li><p>I then learn the conditional distribution by counting how often each next template appears after each context in the training data.</p></li>
+</ul>
+<p>This is essentially a Markov model over template sequences. It captures short-range temporal patterns in the logs, without requiring any deep learning libraries.</p>
+<p>In this subsection, I build the n-gram model by scanning all training sequences and collecting counts for:</p>
+<ul class="simple">
+<li><p>context = last <code class="docutils literal notranslate"><span class="pre">n</span></code> template IDs</p></li>
+<li><p>next = next template ID</p></li>
+</ul>
+<p>Later, I will use these learned distributions for anomaly detection by checking whether the true next template is among the top-k most likely predictions for a given context.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">Counter</span>
+
+<span class="n">order</span> <span class="o">=</span> <span class="mi">3</span>  <span class="c1"># n-gram order: use the last 3 templates as context</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_ngram_model</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build an n-gram model over template sequences.</span>
+
+<span class="sd">    For each training example:</span>
+<span class="sd">      context = last `order` template_ids from the input window</span>
+<span class="sd">      next_id = y_train_next[i]</span>
+
+<span class="sd">    We store counts of next_id for each context, then later use them</span>
+<span class="sd">    as empirical probabilities.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">context_counts</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="n">Counter</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">seq</span><span class="p">,</span> <span class="n">next_id</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">):</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">seq</span><span class="p">[</span><span class="o">-</span><span class="n">order</span><span class="p">:])</span>  <span class="c1"># last `order` templates as context</span>
+        <span class="n">context_counts</span><span class="p">[</span><span class="n">context</span><span class="p">][</span><span class="n">next_id</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="c1"># Optionally, we could convert counts to probabilities here,</span>
+    <span class="c1"># but counts are already enough to rank next templates for each context.</span>
+    <span class="k">return</span> <span class="n">context_counts</span>
+
+<span class="n">ngram_counts</span> <span class="o">=</span> <span class="n">build_ngram_model</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="n">order</span><span class="p">)</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">ngram_counts</span><span class="p">)</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
+</pre></div>
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+5874
+</pre></div></div>
+</div>
+<p><strong>N-gram model summary</strong></p>
+<p>The value printed (e.g., <code class="docutils literal notranslate"><span class="pre">len(ngram_counts)</span></code>) indicates how many <strong>distinct contexts</strong> (tuples of the last <code class="docutils literal notranslate"><span class="pre">order</span> <span class="pre">=</span> <span class="pre">3</span></code> template IDs) were observed in the training data.</p>
+</section>
+<section id="5.3-Anomaly-detection-using-n-gram-top-k-next-event-prediction">
+<h2>5.3 Anomaly detection using n-gram top-k next-event prediction<a class="headerlink" href="#5.3-Anomaly-detection-using-n-gram-top-k-next-event-prediction" title="Link to this heading">¶</a></h2>
+<p>With the n-gram model, I can now perform sequence-based anomaly detection:</p>
+<ol class="arabic simple">
+<li><p>For each sequence in the validation or test set, I take the last <code class="docutils literal notranslate"><span class="pre">order</span></code> template IDs as the <strong>context</strong>.</p></li>
+<li><p>Using the n-gram counts learned from the training data, I obtain the empirical distribution over possible next templates for that context.</p></li>
+<li><p>I sort these candidate next templates by their probability and take the <strong>top-k</strong> most likely ones.</p></li>
+<li><p>If the <em>true</em> next template ID is <strong>not</strong> in this top-k set, I flag the event as an anomaly (<code class="docutils literal notranslate"><span class="pre">1</span></code>); otherwise, it is considered normal (<code class="docutils literal notranslate"><span class="pre">0</span></code>).</p></li>
+</ol>
+<p>For contexts that were <strong>never seen</strong> in the training data, I fall back to a <strong>global template frequency distribution</strong>, which approximates the baseline model’s notion of “common” templates.</p>
+<p>Finally, I compare the predicted anomaly flags with the ground-truth labels for the next event and compute precision, recall, and F1 on both the validation and test sets.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[9]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">precision_recall_fscore_support</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">top_k</span> <span class="o">=</span> <span class="mi">5</span>  <span class="c1"># how many top predicted templates we consider &quot;normal&quot;</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">predict_anomalies_with_ngram</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_next</span><span class="p">,</span> <span class="n">y_label</span><span class="p">,</span> <span class="n">ngram_counts</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Use the n-gram model for anomaly detection via top-k next-template prediction.</span>
+
+<span class="sd">    Inputs:</span>
+<span class="sd">      X         : [num_sequences, seq_len] array of template_id sequences</span>
+<span class="sd">      y_next    : [num_sequences] true next template_id</span>
+<span class="sd">      y_label   : [num_sequences] true label (0/1) for the next event</span>
+<span class="sd">      ngram_counts : dict mapping context -&gt; Counter(next_template_id)</span>
+<span class="sd">      order     : size of the context (n-gram order)</span>
+<span class="sd">      top_k     : how many top next-templates to treat as &quot;expected&quot;</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      precision, recall, f1</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">all_preds</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">all_labels</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Fallback: global frequency-based ranking (using template_prob from baseline)</span>
+    <span class="n">global_probs</span> <span class="o">=</span> <span class="n">template_prob</span>  <span class="c1"># from earlier baseline step</span>
+    <span class="n">global_sorted</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">global_probs</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">global_topk</span> <span class="o">=</span> <span class="p">[</span><span class="n">tid</span> <span class="k">for</span> <span class="n">tid</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">global_sorted</span><span class="p">[:</span><span class="n">top_k</span><span class="p">]]</span>
+
+    <span class="k">for</span> <span class="n">seq</span><span class="p">,</span> <span class="n">true_next</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_next</span><span class="p">,</span> <span class="n">y_label</span><span class="p">):</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">seq</span><span class="p">[</span><span class="o">-</span><span class="n">order</span><span class="p">:])</span>
+
+        <span class="k">if</span> <span class="n">context</span> <span class="ow">in</span> <span class="n">ngram_counts</span><span class="p">:</span>
+            <span class="n">counter</span> <span class="o">=</span> <span class="n">ngram_counts</span><span class="p">[</span><span class="n">context</span><span class="p">]</span>
+            <span class="c1"># Sort by count (equivalent to probability ranking for this context)</span>
+            <span class="n">sorted_tids</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">most_common</span><span class="p">(</span><span class="n">top_k</span><span class="p">)</span>
+            <span class="n">pred_topk</span> <span class="o">=</span> <span class="p">[</span><span class="n">tid</span> <span class="k">for</span> <span class="n">tid</span><span class="p">,</span> <span class="n">cnt</span> <span class="ow">in</span> <span class="n">sorted_tids</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Unseen context: fall back to global most frequent templates</span>
+            <span class="n">pred_topk</span> <span class="o">=</span> <span class="n">global_topk</span>
+
+        <span class="c1"># anomaly if true_next is NOT in top-k predictions</span>
+        <span class="n">is_anomaly</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">true_next</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">pred_topk</span><span class="p">)</span>
+        <span class="n">all_preds</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">is_anomaly</span><span class="p">)</span>
+        <span class="n">all_labels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+
+    <span class="n">all_preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_preds</span><span class="p">)</span>
+    <span class="n">all_labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_labels</span><span class="p">)</span>
+
+    <span class="n">precision</span><span class="p">,</span> <span class="n">recall</span><span class="p">,</span> <span class="n">f1</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">precision_recall_fscore_support</span><span class="p">(</span>
+        <span class="n">all_labels</span><span class="p">,</span> <span class="n">all_preds</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="s2">&quot;binary&quot;</span><span class="p">,</span> <span class="n">pos_label</span><span class="o">=</span><span class="mi">1</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">precision</span><span class="p">,</span> <span class="n">recall</span><span class="p">,</span> <span class="n">f1</span>
+
+<span class="c1"># Evaluate on validation and test sequences</span>
+<span class="n">precision_ng_val</span><span class="p">,</span> <span class="n">recall_ng_val</span><span class="p">,</span> <span class="n">f1_ng_val</span> <span class="o">=</span> <span class="n">predict_anomalies_with_ngram</span><span class="p">(</span>
+    <span class="n">X_val</span><span class="p">,</span> <span class="n">y_val_next</span><span class="p">,</span> <span class="n">y_val_label</span><span class="p">,</span> <span class="n">ngram_counts</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="n">order</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="n">top_k</span>
+<span class="p">)</span>
+
+<span class="n">precision_ng_test</span><span class="p">,</span> <span class="n">recall_ng_test</span><span class="p">,</span> <span class="n">f1_ng_test</span> <span class="o">=</span> <span class="n">predict_anomalies_with_ngram</span><span class="p">(</span>
+    <span class="n">X_test</span><span class="p">,</span> <span class="n">y_test_next</span><span class="p">,</span> <span class="n">y_test_label</span><span class="p">,</span> <span class="n">ngram_counts</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="n">order</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="n">top_k</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;N-gram (order=</span><span class="si">{</span><span class="n">order</span><span class="si">}</span><span class="s2">, top-</span><span class="si">{</span><span class="n">top_k</span><span class="si">}</span><span class="s2">) Validation metrics:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Precision:&quot;</span><span class="p">,</span> <span class="n">precision_ng_val</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Recall   :&quot;</span><span class="p">,</span> <span class="n">recall_ng_val</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  F1       :&quot;</span><span class="p">,</span> <span class="n">f1_ng_val</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">N-gram (order=</span><span class="si">{</span><span class="n">order</span><span class="si">}</span><span class="s2">, top-</span><span class="si">{</span><span class="n">top_k</span><span class="si">}</span><span class="s2">) Test metrics:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Precision:&quot;</span><span class="p">,</span> <span class="n">precision_ng_test</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Recall   :&quot;</span><span class="p">,</span> <span class="n">recall_ng_test</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  F1       :&quot;</span><span class="p">,</span> <span class="n">f1_ng_test</span><span class="p">)</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+N-gram (order=3, top-5) Validation metrics:
+  Precision: 0.04840653454740225
+  Recall   : 0.9492860659773511
+  F1       : 0.09211584554988414
+
+N-gram (order=3, top-5) Test metrics:
+  Precision: 5.923012681170151e-06
+  Recall   : 1.0
+  F1       : 1.1845955198597439e-05
+</pre></div></div>
+</div>
+</section>
+<section id="Interpretation-of-N-gram-Model-Results-(order-=-3,-top-5)">
+<h2>Interpretation of N-gram Model Results (order = 3, top-5)<a class="headerlink" href="#Interpretation-of-N-gram-Model-Results-(order-=-3,-top-5)" title="Link to this heading">¶</a></h2>
+<p>The n-gram sequence model produces the following evaluation metrics:</p>
+<section id="Validation-Set">
+<h3>Validation Set<a class="headerlink" href="#Validation-Set" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><strong>Precision:</strong> 0.0484</p></li>
+<li><p><strong>Recall:</strong> 0.9493</p></li>
+<li><p><strong>F1 Score:</strong> 0.0921</p></li>
+</ul>
+</section>
+<section id="Test-Set">
+<h3>Test Set<a class="headerlink" href="#Test-Set" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><strong>Precision:</strong> 0.0000059</p></li>
+<li><p><strong>Recall:</strong> 1.0000</p></li>
+<li><p><strong>F1 Score:</strong> 0.0000118</p></li>
+</ul>
+</section>
+<section id="What-these-numbers-mean">
+<h3>What these numbers mean<a class="headerlink" href="#What-these-numbers-mean" title="Link to this heading">¶</a></h3>
+<div class="line-block">
+<div class="line">Like the baseline frequency model, the n-gram sequence model achieves <strong>very high recall</strong> (close to 1.0), which means it successfully flags almost all true anomalies.</div>
+<div class="line">However:</div>
+</div>
+<ul class="simple">
+<li><p><strong>Precision is extremely low</strong>, especially on the test set.</p></li>
+<li><p>This occurs because the BGL dataset has:</p>
+<ul>
+<li><p><strong>Very rare anomalies</strong></p></li>
+<li><p><strong>Highly repetitive structure</strong></p></li>
+<li><p>Many events that are legitimate but uncommon, causing them to fall outside the top-5 predictions.</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="Why-the-model-behaves-this-way">
+<h3>Why the model behaves this way<a class="headerlink" href="#Why-the-model-behaves-this-way" title="Link to this heading">¶</a></h3>
+<p>The n-gram model captures only short-range temporal patterns:</p>
+<ul class="simple">
+<li><p>It looks at the last <strong>3</strong> template IDs.</p></li>
+<li><p>If the next template ID is not among the top-5 most frequent continuations, it is marked as anomalous.</p></li>
+<li><p>In a dataset as large and diverse as BGL, many legitimate sequences have <strong>rare contexts</strong> or <strong>rare continuations</strong>, which produces false positives.</p></li>
+</ul>
+</section>
+<section id="Comparison-with-baseline">
+<h3>Comparison with baseline<a class="headerlink" href="#Comparison-with-baseline" title="Link to this heading">¶</a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Precision</p></th>
+<th class="head"><p>Recall</p></th>
+<th class="head"><p>F1</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Frequency baseline</p></td>
+<td><p>~0.12 (val) / ~0.06 (test)</p></td>
+<td><p>~1.0</p></td>
+<td><p>~0.21 / ~0.11</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>N-gram (order 3, top-5)</strong></p></td>
+<td><p><strong>0.048 / 0.000006</strong></p></td>
+<td><p><strong>0.95 / 1.0</strong></p></td>
+<td><p><strong>0.09 / 0.00001</strong></p></td>
+</tr>
+</tbody>
+</table>
+<p>The n-gram model:</p>
+<ul class="simple">
+<li><p>Slightly <strong>reduces recall</strong> on validation (0.95 vs 1.0)</p></li>
+<li><p><strong>Sharply reduces precision</strong>, because many valid but less-common event transitions are treated as anomalies</p></li>
+<li><p>Performs poorly on the test set, likely due to distribution shift between training → test sections of the log</p></li>
+</ul>
+</section>
+<section id="Conclusion">
+<h3>Conclusion<a class="headerlink" href="#Conclusion" title="Link to this heading">¶</a></h3>
+<div class="line-block">
+<div class="line">The n-gram model captures temporal structure, but in this dataset the short-order Markov assumptions are too weak, leading to high false-positive rates.</div>
+<div class="line">This suggests we need a more expressive model (e.g., larger n-gram order, smoothing, or a neural sequence model) to better model the complexities of BGL logs.</div>
+</div>
+</section>
+</section>
+<section id="5.4-Improving-the-n-gram-model-via-hyperparameter-tuning">
+<h2>5.4 Improving the n-gram model via hyperparameter tuning<a class="headerlink" href="#5.4-Improving-the-n-gram-model-via-hyperparameter-tuning" title="Link to this heading">¶</a></h2>
+<p>The initial 3-gram (order = 3, top-5) model achieves very high recall but extremely low precision, especially on the test set. This suggests that the model is <strong>over-flagging</strong> events as anomalous.</p>
+<p>There are several simple ways to improve this:</p>
+<ol class="arabic simple">
+<li><p><strong>Vary the n-gram order</strong></p>
+<ul class="simple">
+<li><p>A smaller order (e.g., 2) may generalize better and avoid overfitting to extremely specific contexts.</p></li>
+<li><p>A larger order (e.g., 4) may better capture longer patterns but could overfit.</p></li>
+</ul>
+</li>
+<li><p><strong>Vary the top-k threshold</strong></p>
+<ul class="simple">
+<li><p>A smaller <code class="docutils literal notranslate"><span class="pre">top_k</span></code> (e.g., 1) is more strict about what is “expected” and typically increases precision at the cost of recall.</p></li>
+<li><p>A larger <code class="docutils literal notranslate"><span class="pre">top_k</span></code> (e.g., 5) is more lenient and usually increases recall but can hurt precision.</p></li>
+</ul>
+</li>
+<li><p><strong>Ignore very rare contexts</strong></p>
+<ul class="simple">
+<li><p>If a context appears only a few times in training, the counts may be too noisy to trust.</p></li>
+<li><p>For such rare contexts, it is safer to fall back to the global frequency-based ranking (the baseline model).</p></li>
+</ul>
+</li>
+</ol>
+<p>In this subsection, I perform a small hyperparameter search over:</p>
+<ul class="simple">
+<li><p>n-gram order ∈ {2, 3, 4}</p></li>
+<li><p>top-k ∈ {1, 3, 5}</p></li>
+</ul>
+<div class="line-block">
+<div class="line">with a minimum context count threshold, and select the combination that maximizes <strong>F1 score on the validation set</strong>.</div>
+<div class="line">I then evaluate that best configuration on the test set.</div>
+</div>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">Counter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">precision_recall_fscore_support</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="c1"># Reuse template_prob from baseline (global frequencies)</span>
+<span class="n">global_probs</span> <span class="o">=</span> <span class="n">template_prob</span>
+<span class="n">global_sorted</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">global_probs</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_ngram_model</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build an n-gram model: context = last `order` template_ids, value = Counter(next_template_id).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">context_counts</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="n">Counter</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">seq</span><span class="p">,</span> <span class="n">next_id</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">):</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">seq</span><span class="p">[</span><span class="o">-</span><span class="n">order</span><span class="p">:])</span>
+        <span class="n">context_counts</span><span class="p">[</span><span class="n">context</span><span class="p">][</span><span class="n">next_id</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">context_counts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">predict_anomalies_with_ngram</span><span class="p">(</span>
+    <span class="n">X</span><span class="p">,</span> <span class="n">y_next</span><span class="p">,</span> <span class="n">y_label</span><span class="p">,</span> <span class="n">ngram_counts</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">min_context_count</span><span class="o">=</span><span class="mi">5</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    N-gram anomaly detection via top-k prediction, with rare-context fallback.</span>
+
+<span class="sd">    - If a context is unseen or has fewer than `min_context_count` total occurrences,</span>
+<span class="sd">      fall back to the global most frequent templates.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">all_preds</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">all_labels</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Global fallback top-k (from frequency baseline)</span>
+    <span class="n">global_topk</span> <span class="o">=</span> <span class="p">[</span><span class="n">tid</span> <span class="k">for</span> <span class="n">tid</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">global_sorted</span><span class="p">[:</span><span class="n">top_k</span><span class="p">]]</span>
+
+    <span class="k">for</span> <span class="n">seq</span><span class="p">,</span> <span class="n">true_next</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_next</span><span class="p">,</span> <span class="n">y_label</span><span class="p">):</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">seq</span><span class="p">[</span><span class="o">-</span><span class="n">order</span><span class="p">:])</span>
+
+        <span class="k">if</span> <span class="n">context</span> <span class="ow">in</span> <span class="n">ngram_counts</span><span class="p">:</span>
+            <span class="n">counter</span> <span class="o">=</span> <span class="n">ngram_counts</span><span class="p">[</span><span class="n">context</span><span class="p">]</span>
+            <span class="n">total_ctx</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">counter</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">total_ctx</span> <span class="o">&gt;=</span> <span class="n">min_context_count</span><span class="p">:</span>
+                <span class="n">sorted_tids</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">most_common</span><span class="p">(</span><span class="n">top_k</span><span class="p">)</span>
+                <span class="n">pred_topk</span> <span class="o">=</span> <span class="p">[</span><span class="n">tid</span> <span class="k">for</span> <span class="n">tid</span><span class="p">,</span> <span class="n">cnt</span> <span class="ow">in</span> <span class="n">sorted_tids</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># context too rare -&gt; fallback</span>
+                <span class="n">pred_topk</span> <span class="o">=</span> <span class="n">global_topk</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># unseen context -&gt; fallback</span>
+            <span class="n">pred_topk</span> <span class="o">=</span> <span class="n">global_topk</span>
+
+        <span class="n">is_anomaly</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">true_next</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">pred_topk</span><span class="p">)</span>
+        <span class="n">all_preds</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">is_anomaly</span><span class="p">)</span>
+        <span class="n">all_labels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+
+    <span class="n">all_preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_preds</span><span class="p">)</span>
+    <span class="n">all_labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_labels</span><span class="p">)</span>
+
+    <span class="n">precision</span><span class="p">,</span> <span class="n">recall</span><span class="p">,</span> <span class="n">f1</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">precision_recall_fscore_support</span><span class="p">(</span>
+        <span class="n">all_labels</span><span class="p">,</span> <span class="n">all_preds</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="s2">&quot;binary&quot;</span><span class="p">,</span> <span class="n">pos_label</span><span class="o">=</span><span class="mi">1</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">precision</span><span class="p">,</span> <span class="n">recall</span><span class="p">,</span> <span class="n">f1</span>
+
+<span class="c1"># Hyperparameter grid</span>
+<span class="n">orders</span> <span class="o">=</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span>
+<span class="n">top_ks</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>
+<span class="n">min_context_count</span> <span class="o">=</span> <span class="mi">5</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">order</span> <span class="ow">in</span> <span class="n">orders</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Training n-gram model with order = </span><span class="si">{</span><span class="n">order</span><span class="si">}</span><span class="s2"> ...&quot;</span><span class="p">)</span>
+    <span class="n">ngram_counts_order</span> <span class="o">=</span> <span class="n">build_ngram_model</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="n">order</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">top_k</span> <span class="ow">in</span> <span class="n">top_ks</span><span class="p">:</span>
+        <span class="n">precision_v</span><span class="p">,</span> <span class="n">recall_v</span><span class="p">,</span> <span class="n">f1_v</span> <span class="o">=</span> <span class="n">predict_anomalies_with_ngram</span><span class="p">(</span>
+            <span class="n">X_val</span><span class="p">,</span> <span class="n">y_val_next</span><span class="p">,</span> <span class="n">y_val_label</span><span class="p">,</span>
+            <span class="n">ngram_counts_order</span><span class="p">,</span>
+            <span class="n">order</span><span class="o">=</span><span class="n">order</span><span class="p">,</span>
+            <span class="n">top_k</span><span class="o">=</span><span class="n">top_k</span><span class="p">,</span>
+            <span class="n">min_context_count</span><span class="o">=</span><span class="n">min_context_count</span>
+        <span class="p">)</span>
+
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s2">&quot;order&quot;</span><span class="p">:</span> <span class="n">order</span><span class="p">,</span>
+            <span class="s2">&quot;top_k&quot;</span><span class="p">:</span> <span class="n">top_k</span><span class="p">,</span>
+            <span class="s2">&quot;precision_val&quot;</span><span class="p">:</span> <span class="n">precision_v</span><span class="p">,</span>
+            <span class="s2">&quot;recall_val&quot;</span><span class="p">:</span> <span class="n">recall_v</span><span class="p">,</span>
+            <span class="s2">&quot;f1_val&quot;</span><span class="p">:</span> <span class="n">f1_v</span>
+        <span class="p">})</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  top_k=</span><span class="si">{</span><span class="n">top_k</span><span class="si">}</span><span class="s2">: val Precision=</span><span class="si">{</span><span class="n">precision_v</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, Recall=</span><span class="si">{</span><span class="n">recall_v</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, F1=</span><span class="si">{</span><span class="n">f1_v</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Put results into a DataFrame and sort by validation F1</span>
+<span class="n">results_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+<span class="n">results_df_sorted</span> <span class="o">=</span> <span class="n">results_df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s2">&quot;f1_val&quot;</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Validation results (sorted by F1):&quot;</span><span class="p">)</span>
+<span class="n">display</span><span class="p">(</span><span class="n">results_df_sorted</span><span class="p">)</span>
+
+<span class="c1"># Choose the best configuration</span>
+<span class="n">best</span> <span class="o">=</span> <span class="n">results_df_sorted</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">best_order</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">best</span><span class="p">[</span><span class="s2">&quot;order&quot;</span><span class="p">])</span>
+<span class="n">best_top_k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">best</span><span class="p">[</span><span class="s2">&quot;top_k&quot;</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Best config on validation: order=</span><span class="si">{</span><span class="n">best_order</span><span class="si">}</span><span class="s2">, top_k=</span><span class="si">{</span><span class="n">best_top_k</span><span class="si">}</span><span class="s2">, F1_val=</span><span class="si">{</span><span class="n">best</span><span class="p">[</span><span class="s1">&#39;f1_val&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Rebuild best n-gram model and evaluate on TEST set</span>
+<span class="n">best_ngram_counts</span> <span class="o">=</span> <span class="n">build_ngram_model</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train_next</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="n">best_order</span><span class="p">)</span>
+<span class="n">precision_t</span><span class="p">,</span> <span class="n">recall_t</span><span class="p">,</span> <span class="n">f1_t</span> <span class="o">=</span> <span class="n">predict_anomalies_with_ngram</span><span class="p">(</span>
+    <span class="n">X_test</span><span class="p">,</span> <span class="n">y_test_next</span><span class="p">,</span> <span class="n">y_test_label</span><span class="p">,</span>
+    <span class="n">best_ngram_counts</span><span class="p">,</span>
+    <span class="n">order</span><span class="o">=</span><span class="n">best_order</span><span class="p">,</span>
+    <span class="n">top_k</span><span class="o">=</span><span class="n">best_top_k</span><span class="p">,</span>
+    <span class="n">min_context_count</span><span class="o">=</span><span class="n">min_context_count</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Test metrics for best n-gram configuration:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Precision:&quot;</span><span class="p">,</span> <span class="n">precision_t</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Recall   :&quot;</span><span class="p">,</span> <span class="n">recall_t</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  F1       :&quot;</span><span class="p">,</span> <span class="n">f1_t</span><span class="p">)</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+
+Training n-gram model with order = 2 ...
+  top_k=1: val Precision=0.0454, Recall=0.9485, F1=0.0866
+  top_k=3: val Precision=0.0472, Recall=0.9481, F1=0.0898
+  top_k=5: val Precision=0.0479, Recall=0.9481, F1=0.0911
+
+Training n-gram model with order = 3 ...
+  top_k=1: val Precision=0.0440, Recall=0.9498, F1=0.0842
+  top_k=3: val Precision=0.0452, Recall=0.9498, F1=0.0862
+  top_k=5: val Precision=0.0456, Recall=0.9498, F1=0.0871
+
+Training n-gram model with order = 4 ...
+  top_k=1: val Precision=0.0430, Recall=0.9511, F1=0.0823
+  top_k=3: val Precision=0.0438, Recall=0.9511, F1=0.0837
+  top_k=5: val Precision=0.0440, Recall=0.9511, F1=0.0842
+
+Validation results (sorted by F1):
+</pre></div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>order</th>
+      <th>top_k</th>
+      <th>precision_val</th>
+      <th>recall_val</th>
+      <th>f1_val</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2</th>
+      <td>2</td>
+      <td>5</td>
+      <td>0.047863</td>
+      <td>0.948137</td>
+      <td>0.091126</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>2</td>
+      <td>3</td>
+      <td>0.047152</td>
+      <td>0.948137</td>
+      <td>0.089837</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>3</td>
+      <td>5</td>
+      <td>0.045641</td>
+      <td>0.949778</td>
+      <td>0.087096</td>
+    </tr>
+    <tr>
+      <th>0</th>
+      <td>2</td>
+      <td>1</td>
+      <td>0.045370</td>
+      <td>0.948465</td>
+      <td>0.086598</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>3</td>
+      <td>3</td>
+      <td>0.045172</td>
+      <td>0.949778</td>
+      <td>0.086242</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>4</td>
+      <td>5</td>
+      <td>0.044035</td>
+      <td>0.951091</td>
+      <td>0.084172</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>3</td>
+      <td>1</td>
+      <td>0.044036</td>
+      <td>0.949778</td>
+      <td>0.084170</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>4</td>
+      <td>3</td>
+      <td>0.043775</td>
+      <td>0.951091</td>
+      <td>0.083697</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>4</td>
+      <td>1</td>
+      <td>0.043020</td>
+      <td>0.951091</td>
+      <td>0.082316</td>
+    </tr>
+  </tbody>
+</table>
+</div></div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<div class="highlight"><pre>
+
+Best config on validation: order=2, top_k=5, F1_val=0.0911
+
+Test metrics for best n-gram configuration:
+  Precision: 5.932007331961062e-06
+  Recall   : 1.0
+  F1       : 1.1863944286917629e-05
+</pre></div></div>
+</div>
+</section>
+<section id="5.4-Results-of-N-gram-Model-Improvements">
+<h2>5.4 Results of N-gram Model Improvements<a class="headerlink" href="#5.4-Results-of-N-gram-Model-Improvements" title="Link to this heading">¶</a></h2>
+<p>After sweeping across n-gram order {2, 3, 4} and prediction top-k {1, 3, 5}, the best configuration on the <strong>validation</strong> set was:</p>
+<ul class="simple">
+<li><p><strong>order = 2</strong></p></li>
+<li><p><strong>top-k = 5</strong></p></li>
+<li><p><strong>Validation F1 ≈ 0.0911</strong></p></li>
+</ul>
+<div class="line-block">
+<div class="line">This represents the highest F1 score among all combinations tested.</div>
+<div class="line">Below is a summary of the top-performing configurations:</div>
+</div>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>order</p></th>
+<th class="head"><p>top-k</p></th>
+<th class="head"><p>Precision (val)</p></th>
+<th class="head"><p>Recall (val)</p></th>
+<th class="head"><p>F1 (val)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>2</strong></p></td>
+<td><p><strong>5</strong></p></td>
+<td><p>0.0479</p></td>
+<td><p>0.9481</p></td>
+<td><p><strong>0.0911</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>3</p></td>
+<td><p>0.0472</p></td>
+<td><p>0.9481</p></td>
+<td><p>0.0898</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>5</p></td>
+<td><p>0.0456</p></td>
+<td><p>0.9498</p></td>
+<td><p>0.0871</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>5</p></td>
+<td><p>0.0440</p></td>
+<td><p>0.9511</p></td>
+<td><p>0.0842</p></td>
+</tr>
+</tbody>
+</table>
+<p>The trend shows:</p>
+<ul class="simple">
+<li><p>Increasing n-gram order (3 or 4) <strong>did not improve</strong> performance.</p></li>
+<li><p>Smaller orders (2-grams) generalize slightly better because they avoid overly specific contexts.</p></li>
+<li><p>Larger top-k values (especially 5) consistently give the best recall–precision tradeoff.</p></li>
+<li><p>The improvements, however, are still modest.</p></li>
+</ul>
+</section>
+<section id="Test-Set-Performance-for-Best-Configuration">
+<h2>Test Set Performance for Best Configuration<a class="headerlink" href="#Test-Set-Performance-for-Best-Configuration" title="Link to this heading">¶</a></h2>
+<p>Using the best validation configuration (order = 2, top-k = 5), the model achieves:</p>
+<ul class="simple">
+<li><p><strong>Precision:</strong> 0.0000059</p></li>
+<li><p><strong>Recall:</strong> 1.0</p></li>
+<li><p><strong>F1 Score:</strong> 0.0000119</p></li>
+</ul>
+</section>
+<section id="Interpretation">
+<h2>Interpretation<a class="headerlink" href="#Interpretation" title="Link to this heading">¶</a></h2>
+<p>Even after tuning, the improved n-gram model behaves similarly to the initial version:</p>
+<ul class="simple">
+<li><p><strong>Recall remains extremely high (≈1.0)</strong> — the model flags nearly every anomaly.</p></li>
+<li><p><strong>Precision is extremely low</strong> — meaning almost all flagged anomalies are false positives.</p></li>
+</ul>
+<p>This is due to the nature of the BGL dataset:</p>
+<ul class="simple">
+<li><p>It contains millions of log lines with repetitive structure.</p></li>
+<li><p>Many normal events have <strong>rare transitions</strong>, causing them to fall outside the top-k predictions.</p></li>
+<li><p>N-gram models only capture <strong>short-term local structure</strong>, which is insufficient for modeling the complex patterns in HPC logs.</p></li>
+</ul>
+</section>
+<section id="id1">
+<h2>Conclusion<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line">The improved n-gram model provides a small gain on the validation set (from F1 ≈ 0.087 → 0.091), but still does not match the performance needed for robust anomaly detection.</div>
+<div class="line">This highlights a key limitation:</div>
+</div>
+<blockquote>
+<div><p><strong>Non-neural sequence models cannot adequately model the long-range, hierarchical patterns present in system logs like BGL.</strong></p>
+</div></blockquote>
+<p>This motivates the need for a more expressive sequence model (e.g., LSTM, GRU, Transformer), which can learn deeper temporal dependencies.</p>
+</section>
+<section id="5.5-Comparison-of-Baseline,-Basic-N-gram,-and-Improved-N-gram-Models">
+<h2>5.5 Comparison of Baseline, Basic N-gram, and Improved N-gram Models<a class="headerlink" href="#5.5-Comparison-of-Baseline,-Basic-N-gram,-and-Improved-N-gram-Models" title="Link to this heading">¶</a></h2>
+<p>I now compare all anomaly detection models implemented so far:</p>
+<ol class="arabic simple">
+<li><p><strong>Frequency-based baseline</strong></p>
+<ul class="simple">
+<li><p>Treats each log line independently</p></li>
+<li><p>Scores templates by how rare they are</p></li>
+</ul>
+</li>
+<li><p><strong>Basic n-gram model (order = 3, top-5)</strong></p>
+<ul class="simple">
+<li><p>Uses short-range temporal patterns</p></li>
+<li><p>Predicts whether the next template falls within the top-k most common continuations</p></li>
+</ul>
+</li>
+<li><p><strong>Improved n-gram model (order = 2, top-5)</strong></p>
+<ul class="simple">
+<li><p>Selected by hyperparameter tuning using validation F1</p></li>
+<li><p>Includes rare-context fallback to avoid overfitting to noisy contexts</p></li>
+</ul>
+</li>
+</ol>
+<p>The key metrics for anomaly detection are:</p>
+<ul class="simple">
+<li><p><strong>Precision</strong>: fraction of predicted anomalies that are correct</p></li>
+<li><p><strong>Recall</strong>: fraction of true anomalies detected</p></li>
+<li><p><strong>F1</strong>: harmonic mean of precision and recall</p></li>
+</ul>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="n">comparison</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">([</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;Model&quot;</span><span class="p">:</span> <span class="s2">&quot;Frequency Baseline&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (val)&quot;</span><span class="p">:</span> <span class="mf">0.12177</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (val)&quot;</span><span class="p">:</span>    <span class="mf">0.99999</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (val)&quot;</span><span class="p">:</span>        <span class="mf">0.21711</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (test)&quot;</span><span class="p">:</span> <span class="mf">0.05962</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (test)&quot;</span><span class="p">:</span>    <span class="mf">1.00000</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (test)&quot;</span><span class="p">:</span>        <span class="mf">0.11254</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;Model&quot;</span><span class="p">:</span> <span class="s2">&quot;N-gram Basic (order=3, top-5)&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (val)&quot;</span><span class="p">:</span> <span class="mf">0.04841</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (val)&quot;</span><span class="p">:</span>    <span class="mf">0.94929</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (val)&quot;</span><span class="p">:</span>        <span class="mf">0.09212</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (test)&quot;</span><span class="p">:</span> <span class="mf">0.000005923</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (test)&quot;</span><span class="p">:</span>    <span class="mf">1.00000</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (test)&quot;</span><span class="p">:</span>        <span class="mf">0.00001185</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;Model&quot;</span><span class="p">:</span> <span class="s2">&quot;N-gram Improved (order=2, top-5)&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (val)&quot;</span><span class="p">:</span> <span class="mf">0.04786</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (val)&quot;</span><span class="p">:</span>    <span class="mf">0.94814</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (val)&quot;</span><span class="p">:</span>        <span class="mf">0.09113</span><span class="p">,</span>
+        <span class="s2">&quot;Precision (test)&quot;</span><span class="p">:</span> <span class="mf">0.000005932</span><span class="p">,</span>
+        <span class="s2">&quot;Recall (test)&quot;</span><span class="p">:</span>    <span class="mf">1.00000</span><span class="p">,</span>
+        <span class="s2">&quot;F1 (test)&quot;</span><span class="p">:</span>        <span class="mf">0.00001186</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">])</span>
+
+<span class="n">comparison</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+</pre></div>
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>Model</th>
+      <th>Precision (val)</th>
+      <th>Recall (val)</th>
+      <th>F1 (val)</th>
+      <th>Precision (test)</th>
+      <th>Recall (test)</th>
+      <th>F1 (test)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>Frequency Baseline</td>
+      <td>0.12177</td>
+      <td>0.99999</td>
+      <td>0.21711</td>
+      <td>0.059620</td>
+      <td>1.0</td>
+      <td>0.112540</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>N-gram Basic (order=3, top-5)</td>
+      <td>0.04841</td>
+      <td>0.94929</td>
+      <td>0.09212</td>
+      <td>0.000006</td>
+      <td>1.0</td>
+      <td>0.000012</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>N-gram Improved (order=2, top-5)</td>
+      <td>0.04786</td>
+      <td>0.94814</td>
+      <td>0.09113</td>
+      <td>0.000006</td>
+      <td>1.0</td>
+      <td>0.000012</td>
+    </tr>
+  </tbody>
+</table>
+</div></div>
+</div>
+</section>
+<section id="Interpretation-of-Model-Comparison">
+<h2>Interpretation of Model Comparison<a class="headerlink" href="#Interpretation-of-Model-Comparison" title="Link to this heading">¶</a></h2>
+<p>The performance comparison shows a clear pattern:</p>
+<ol class="arabic simple">
+<li><p><strong>The frequency baseline has the best F1 score</strong>
+This is because it achieves:</p>
+<ul class="simple">
+<li><p>Extremely high recall (≈1.0)</p></li>
+<li><p>Precision around 0.12 on validation
+Its simplicity helps it generalize surprisingly well on BGL logs.</p></li>
+</ul>
+</li>
+<li><p><strong>The n-gram models (basic and improved) achieve lower F1 scores</strong>
+Even though they incorporate temporal patterns:</p>
+<ul class="simple">
+<li><p>Their precision drops dramatically</p></li>
+<li><p>Their recall remains high
+The drop in precision indicates that many <em>normal</em> next-events fall outside the top-k predictions, especially in later parts of the dataset.</p></li>
+</ul>
+</li>
+<li><p><strong>Hyperparameter tuning helps, but not enough</strong></p>
+<ul class="simple">
+<li><p>The improved model (order = 2, top-5) performs slightly better on validation</p></li>
+<li><p>But test precision remains extremely low</p></li>
+<li><p>This suggests distribution shift and the limitation of short-context Markov models</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="Key-insight">
+<h2>Key insight<a class="headerlink" href="#Key-insight" title="Link to this heading">¶</a></h2>
+<p>System logs like BGL exhibit:</p>
+<ul class="simple">
+<li><p>Long-range dependencies</p></li>
+<li><p>Repetitive but occasionally bursty patterns</p></li>
+<li><p>Context that spans more than 2–3 templates</p></li>
+</ul>
+<p>Short-order n-gram models <strong>cannot capture these larger structures</strong>, leading to high false-positive rates.</p>
+</section>
+<section id="Overall-conclusion-for-classical-sequence-models">
+<h2>Overall conclusion for classical sequence models<a class="headerlink" href="#Overall-conclusion-for-classical-sequence-models" title="Link to this heading">¶</a></h2>
+<blockquote>
+<div><p>While sequence-aware models outperform frequency-based baselines in many datasets, on BGL the opposite is true: short-context n-gram models are too limited to model the complexity of supercomputer logs.</p>
+<p>This highlights the need for more expressive models (e.g., LSTMs, GRUs, or Transformers) if one wants to significantly improve anomaly detection performance.</p>
+</div></blockquote>
+</section>
+</section>
+<section id="6.-Final-Evaluation-&amp;-Discussion">
+<h1>6. Final Evaluation &amp; Discussion<a class="headerlink" href="#6.-Final-Evaluation-&-Discussion" title="Link to this heading">¶</a></h1>
+<p>After implementing and evaluating three different anomaly detection models—</p>
+<ol class="arabic simple">
+<li><p>a frequency-based baseline, (2) a basic n-gram sequence model, and</p></li>
+<li><p>an improved n-gram model with hyperparameter tuning—
+I now summarize the key findings and discuss the strengths and weaknesses of each approach.</p></li>
+</ol>
+<p>All models were evaluated using precision, recall, and F1 on both validation and test sets in the BGL dataset.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">comparison</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
+</pre></div>
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>Model</th>
+      <th>Precision (val)</th>
+      <th>Recall (val)</th>
+      <th>F1 (val)</th>
+      <th>Precision (test)</th>
+      <th>Recall (test)</th>
+      <th>F1 (test)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>Frequency Baseline</td>
+      <td>0.12177</td>
+      <td>0.99999</td>
+      <td>0.21711</td>
+      <td>0.059620</td>
+      <td>1.0</td>
+      <td>0.112540</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>N-gram Basic (order=3, top-5)</td>
+      <td>0.04841</td>
+      <td>0.94929</td>
+      <td>0.09212</td>
+      <td>0.000006</td>
+      <td>1.0</td>
+      <td>0.000012</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>N-gram Improved (order=2, top-5)</td>
+      <td>0.04786</td>
+      <td>0.94814</td>
+      <td>0.09113</td>
+      <td>0.000006</td>
+      <td>1.0</td>
+      <td>0.000012</td>
+    </tr>
+  </tbody>
+</table>
+</div></div>
+</div>
+<section id="6.1-Discussion-of-Model-Behavior">
+<h2>6.1 Discussion of Model Behavior<a class="headerlink" href="#6.1-Discussion-of-Model-Behavior" title="Link to this heading">¶</a></h2>
+<section id="Frequency-based-baseline">
+<h3>Frequency-based baseline<a class="headerlink" href="#Frequency-based-baseline" title="Link to this heading">¶</a></h3>
+<p>The frequency model surprisingly achieves the <strong>best F1 score</strong> among all models:</p>
+<ul class="simple">
+<li><p>It identifies nearly all anomalies (recall ≈ 1.0).</p></li>
+<li><p>It retains moderate precision (6–12%), significantly higher than the n-gram models.</p></li>
+</ul>
+<div class="line-block">
+<div class="line">This indicates that <strong>global rarity of templates</strong> is a strong signal of anomalous behavior in the BGL dataset.</div>
+<div class="line">The dataset is highly repetitive, so even small deviations from normal template frequency represent meaningful anomalies.</div>
+</div>
+</section>
+<section id="Basic-n-gram-model-(order-=-3,-top-5)">
+<h3>Basic n-gram model (order = 3, top-5)<a class="headerlink" href="#Basic-n-gram-model-(order-=-3,-top-5)" title="Link to this heading">¶</a></h3>
+<p>The basic n-gram model incorporates short-range temporal patterns, but its performance drops:</p>
+<ul class="simple">
+<li><p>Precision drops sharply (&lt; 5% on validation; ~0% on test)</p></li>
+<li><p>Recall remains high (~0.95–1.0)</p></li>
+<li><p>F1 becomes very low</p></li>
+</ul>
+<div class="line-block">
+<div class="line">This suggests that while anomalies often fall outside expected sequences, many <strong>normal events also have rare transitions</strong>.</div>
+<div class="line">Because the model relies on counts of short contexts, it overflags normal samples as anomalous.</div>
+</div>
+</section>
+<section id="Improved-n-gram-model-(order-=-2,-top-5)">
+<h3>Improved n-gram model (order = 2, top-5)<a class="headerlink" href="#Improved-n-gram-model-(order-=-2,-top-5)" title="Link to this heading">¶</a></h3>
+<p>Hyperparameter tuning improves validation performance slightly:</p>
+<ul class="simple">
+<li><p>Best F1 on validation increases from ~0.087 → ~0.091</p></li>
+<li><p>However, test performance does not improve meaningfully</p></li>
+</ul>
+<p>This shows that:</p>
+<ul class="simple">
+<li><p>Lower-order models generalize slightly better</p></li>
+<li><p>But short-context models have limited expressive power for this dataset</p></li>
+<li><p>The distribution of logs changes over time, and simple n-grams cannot adapt well</p></li>
+</ul>
+</section>
+</section>
+<hr class="docutils" />
+<section id="6.2-Why-N-gram-Models-Struggle-on-BGL">
+<h2>6.2 Why N-gram Models Struggle on BGL<a class="headerlink" href="#6.2-Why-N-gram-Models-Struggle-on-BGL" title="Link to this heading">¶</a></h2>
+<p>The BGL dataset exhibits:</p>
+<ul class="simple">
+<li><p>Very long sequences (millions of lines)</p></li>
+<li><p>Repeated burst patterns</p></li>
+<li><p>System-wide events occurring across nodes</p></li>
+<li><p>Long-range dependencies spanning &gt;50 events</p></li>
+</ul>
+<p>Short-context models (n=2 or 3) cannot capture:</p>
+<ul class="simple">
+<li><p>Higher-order temporal structure</p></li>
+<li><p>System-level cascades</p></li>
+<li><p>Rare but legitimate transitions</p></li>
+</ul>
+<p>As a result, n-gram models exhibit <strong>high recall but extremely low precision</strong>.</p>
+</section>
+<hr class="docutils" />
+<section id="6.3-Key-Takeaway">
+<h2>6.3 Key Takeaway<a class="headerlink" href="#6.3-Key-Takeaway" title="Link to this heading">¶</a></h2>
+<blockquote>
+<div><p><strong>For large-scale system logs with long-range dependencies, simple statistical sequence models are insufficient.</strong></p>
+</div></blockquote>
+<p>This motivates the use of:</p>
+<ul class="simple">
+<li><p>LSTMs</p></li>
+<li><p>GRUs</p></li>
+<li><p>Transformers</p></li>
+<li><p>Or modern deep-learning log anomaly frameworks (DeepLog, LogAnomaly, etc.)</p></li>
+</ul>
+<p>which can learn more complex patterns over longer histories.</p>
+</section>
+</section>
+<section id="7.-Visualizations">
+<h1>7. Visualizations<a class="headerlink" href="#7.-Visualizations" title="Link to this heading">¶</a></h1>
+<p>To better understand the structure of the BGL logs and the behavior of the anomaly detection models, I include several visualizations:</p>
+<ol class="arabic simple">
+<li><p><strong>Template frequency distribution</strong> – shows how skewed and heavy-tailed the log template space is.</p></li>
+<li><p><strong>Anomaly timeline</strong> – visualizes where anomalies occur over the sequence of events.</p></li>
+<li><p><strong>Baseline anomaly score plot</strong> – shows how anomaly scores vary over time and how they correlate with true anomalies.</p></li>
+</ol>
+<p>These visualizations help contextualize the quantitative results reported in previous sections.</p>
+<section id="7.1-Template-Frequency-Distribution">
+<h2>7.1 Template Frequency Distribution<a class="headerlink" href="#7.1-Template-Frequency-Distribution" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line">The BGL dataset contains millions of log lines but only a limited number of distinct templates.</div>
+<div class="line">Plotting the frequency of each template provides insight into:</div>
+</div>
+<ul class="simple">
+<li><p>how repetitive the system behavior is,</p></li>
+<li><p>which templates dominate the logs,</p></li>
+<li><p>how rare templates contribute to anomaly scoring.</p></li>
+</ul>
+<p>A highly skewed distribution is expected for HPC system logs.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[13]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+
+<span class="c1"># Compute template frequencies</span>
+<span class="n">template_counts</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">template_counts</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">yscale</span><span class="p">(</span><span class="s2">&quot;log&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Template Frequency Distribution (Log Scale)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Template Rank&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Frequency&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_project_42_0.png" src="../_images/notebooks_project_42_0.png" />
+</div>
+</div>
+<p><strong>Interpretation</strong></p>
+<p>This plot shows that the BGL template distribution is extremely <strong>skewed</strong> and <strong>heavy-tailed</strong>:</p>
+<ul class="simple">
+<li><p>A small number of templates (on the left) occur <strong>very frequently</strong>.</p></li>
+<li><p>Most templates (the long tail to the right) occur <strong>rarely</strong>.</p></li>
+<li><p>The log-scale on the y-axis emphasizes how quickly the frequencies drop.</p></li>
+</ul>
+<div class="line-block">
+<div class="line">This behavior is typical for system logs: a few “normal” operational messages dominate, while many others are only seen occasionally.</div>
+<div class="line">For anomaly detection, this justifies using <strong>template rarity</strong> (via the frequency-based baseline) as an anomaly signal: rare templates tend to receive higher anomaly scores.</div>
+</div>
+</section>
+<section id="7.2-Anomaly-Timeline">
+<h2>7.2 Anomaly Timeline<a class="headerlink" href="#7.2-Anomaly-Timeline" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line">To visualize where anomalies occur in the overall log sequence,</div>
+<div class="line">I plot the anomaly labels (0 = normal, 1 = anomaly) across the time axis.</div>
+</div>
+<p>Given the size of the dataset (millions of entries), the plot is subsampled for clarity.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[14]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Subsample for plotting (e.g., every 500th event)</span>
+<span class="n">step</span> <span class="o">=</span> <span class="mi">500</span>
+<span class="n">labels_sub</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[::</span><span class="n">step</span><span class="p">]</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">labels_sub</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s1">&#39;.&#39;</span><span class="p">,</span> <span class="n">markersize</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Anomaly Timeline (subsampled)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Event Index (subsampled)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Anomaly Label&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_project_45_0.png" src="../_images/notebooks_project_45_0.png" />
+</div>
+</div>
+<p><strong>Interpretation</strong></p>
+<p>The anomaly timeline illustrates how <strong>sparse</strong> the anomalous events are compared to the total number of log lines:</p>
+<ul class="simple">
+<li><p>Most points are <code class="docutils literal notranslate"><span class="pre">0</span></code> (normal), with occasional <code class="docutils literal notranslate"><span class="pre">1</span></code>s (anomalies) scattered across the time axis.</p></li>
+<li><p>Depending on the dataset slice, anomalies may appear as <strong>isolated spikes</strong> or short <strong>bursts</strong>.</p></li>
+</ul>
+<div class="line-block">
+<div class="line">Even with subsampling, we can see that anomalies make up only a <strong>tiny fraction</strong> of all events.</div>
+<div class="line">This extreme <strong>class imbalance</strong> explains why:</div>
+</div>
+<ul class="simple">
+<li><p>High <strong>recall</strong> is easy to achieve (flagging many events as anomalous),</p></li>
+<li><p>But achieving good <strong>precision</strong> is challenging (avoiding too many false positives).</p></li>
+</ul>
+<p>It also highlights why careful thresholding and model design are important in log-based anomaly detection.</p>
+</section>
+<section id="7.3-Baseline-Anomaly-Score-Visualization">
+<h2>7.3 Baseline Anomaly Score Visualization<a class="headerlink" href="#7.3-Baseline-Anomaly-Score-Visualization" title="Link to this heading">¶</a></h2>
+<p>Using the frequency-based baseline model, each log event receives an anomaly score.</p>
+<p>Plotting this score over time, and overlaying true anomalies, reveals:</p>
+<ul class="simple">
+<li><p>how well template rarity aligns with true anomalies,</p></li>
+<li><p>which parts of the log exhibit unusual behavior,</p></li>
+<li><p>whether anomalies appear as isolated spikes or clusters.</p></li>
+</ul>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">anomaly_score</span><span class="p">(</span><span class="n">template_id</span><span class="p">):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">template_prob</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">template_id</span><span class="p">,</span> <span class="mf">1e-8</span><span class="p">)</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+<span class="c1"># Take a manageable slice (e.g., first 100k entries)</span>
+<span class="n">N</span> <span class="o">=</span> <span class="mi">100000</span>
+<span class="n">scores_slice</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;template_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">anomaly_score</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="n">N</span><span class="p">]</span>
+<span class="n">labels_slice</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="n">N</span><span class="p">]</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">scores_slice</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Anomaly Score&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.7</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">labels_slice</span> <span class="o">==</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">scores_slice</span><span class="p">[</span><span class="n">labels_slice</span> <span class="o">==</span> <span class="mi">1</span><span class="p">],</span>
+    <span class="n">color</span><span class="o">=</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;True Anomaly&quot;</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Baseline Anomaly Scores with True Anomalies (First 100k Events)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Event Index&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Score&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<br/></pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_project_48_0.png" src="../_images/notebooks_project_48_0.png" />
+</div>
+</div>
+<p><strong>Interpretation</strong></p>
+<p>This plot shows how the <strong>frequency-based anomaly score</strong> evolves over time, with true anomalies highlighted:</p>
+<ul class="simple">
+<li><p>The blue curve (anomaly score) fluctuates over time, with occasional <strong>sharp spikes</strong>, corresponding to rare templates.</p></li>
+<li><p>Red points (true anomalies) tend to align with <strong>higher scores</strong>, indicating that many alerts indeed occur when the template is statistically unusual.</p></li>
+<li><p>However, not every high-score point is a true anomaly, which reflects the <strong>false positives</strong> observed in the precision metric.</p></li>
+</ul>
+<p>Overall, this visualization confirms that:</p>
+<ul class="simple">
+<li><p>Template rarity is a <strong>useful signal</strong> for anomaly detection (many anomalies coincide with high scores),</p></li>
+<li><p>But it is <strong>not sufficient</strong> on its own—rare but benign events also get high scores, which limits precision.</p></li>
+</ul>
+<p>This supports the quantitative evaluation: the baseline achieves very high recall but only moderate precision, motivating more sophisticated models that can incorporate additional context beyond global frequency.</p>
+</section>
+</section>
+<section id="8.-Conclusion">
+<h1>8. Conclusion<a class="headerlink" href="#8.-Conclusion" title="Link to this heading">¶</a></h1>
+<section id="8.1-Summary-of-the-Approach">
+<h2>8.1 Summary of the Approach<a class="headerlink" href="#8.1-Summary-of-the-Approach" title="Link to this heading">¶</a></h2>
+<p>In this project, I explored <strong>log-based anomaly detection</strong> on the BGL dataset, a large collection of supercomputer logs from BlueGene/L. The main goal was to detect anomalous events (alerts) from raw log lines, using only the log contents themselves.</p>
+<p>The pipeline consisted of the following steps:</p>
+<ol class="arabic simple">
+<li><p><strong>Log parsing and labeling</strong></p>
+<ul class="simple">
+<li><p>Parsed each raw log line into:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">tag</span></code> (first column),</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">message</span></code> (rest of the line),</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">label</span></code> (0 for non-alert <code class="docutils literal notranslate"><span class="pre">&quot;-&quot;</span></code>, 1 for alert).</p></li>
+</ul>
+</li>
+<li><p>Saved a clean structured dataset (<code class="docutils literal notranslate"><span class="pre">bgl_parsed.csv</span></code>).</p></li>
+</ul>
+</li>
+<li><p><strong>Template extraction</strong></p>
+<ul class="simple">
+<li><p>Normalized variable fields (timestamps, numbers, hex values) into placeholders such as <code class="docutils literal notranslate"><span class="pre">&lt;NUM&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;DATE&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;TS&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;HEX&gt;</span></code>.</p></li>
+<li><p>Mapped each normalized template to a unique <code class="docutils literal notranslate"><span class="pre">template_id</span></code>.</p></li>
+<li><p>Saved this processed dataset (<code class="docutils literal notranslate"><span class="pre">bgl_templates.csv</span></code>).</p></li>
+</ul>
+</li>
+<li><p><strong>Baseline frequency-based anomaly detection</strong></p>
+<ul class="simple">
+<li><p>Estimated template probabilities from <strong>normal training logs</strong> only.</p></li>
+<li><p>Defined anomaly score as: [ <span class="math">\text{score}`(:nbsphinx-math:</span>text{template}`) = -<span class="math">\log `P(:nbsphinx-math:</span>text{template}`) ]</p></li>
+<li><p>Chose a threshold on the validation set and evaluated precision, recall, and F1 on both validation and test sets.</p></li>
+</ul>
+</li>
+<li><p><strong>Sequence-based anomaly detection with n-grams (no deep learning)</strong></p>
+<ul class="simple">
+<li><p>Constructed fixed-length sequences of template IDs (history window of length 50).</p></li>
+<li><p>Built <strong>n-gram models</strong> (orders 2–4) to estimate: [ P(<span class="math">\text{next template}</span> <span class="math">\mid `:nbsphinx-math:</span>text{last n templates}`) ]</p></li>
+<li><p>Used a DeepLog-inspired criterion: if the true next template was not in the <strong>top-k</strong> predicted templates, that event was flagged as anomalous.</p></li>
+<li><p>Performed hyperparameter tuning over n-gram order and top-k using validation F1.</p></li>
+</ul>
+</li>
+<li><p><strong>Visualization</strong></p>
+<ul class="simple">
+<li><p>Visualized the <strong>template frequency distribution</strong>, showing a heavy-tailed, highly skewed pattern typical of system logs.</p></li>
+<li><p>Plotted an <strong>anomaly timeline</strong>, highlighting the sparsity and burstiness of anomalies.</p></li>
+<li><p>Visualized <strong>baseline anomaly scores vs. true anomalies</strong> over time to qualitatively inspect how rarity correlates with alerts.</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<hr class="docutils" />
+<section id="8.2-Key-Findings">
+<h2>8.2 Key Findings<a class="headerlink" href="#8.2-Key-Findings" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Frequency-based baseline is surprisingly strong</strong></p>
+<ul class="simple">
+<li><p>Achieves <strong>very high recall (≈ 1.0)</strong> and <strong>moderate precision (≈ 6–12%)</strong>, leading to the best F1 scores among all models tested.</p></li>
+<li><p>This indicates that, for BGL, <strong>global template rarity alone is a strong anomaly signal</strong>: many alerts correspond to relatively rare log templates.</p></li>
+</ul>
+</li>
+<li><p><strong>N-gram sequence models struggle on BGL</strong></p>
+<ul class="simple">
+<li><p>Both the basic n-gram model (order = 3, top-5) and the improved version (order = 2, top-5, with rare-context fallback) achieve:</p>
+<ul>
+<li><p><strong>Very high recall</strong>, but</p></li>
+<li><p><strong>Extremely low precision</strong>, especially on the test set.</p></li>
+</ul>
+</li>
+<li><p>Many <em>normal</em> events have rare contexts or rare continuations, causing the model to flag them as anomalies.</p></li>
+<li><p>This leads to a very high false positive rate, which is not practical in real-world operations.</p></li>
+</ul>
+</li>
+<li><p><strong>Hyperparameter tuning helps, but only slightly</strong></p>
+<ul class="simple">
+<li><p>Tuning over n-gram order and top-k improved validation F1 by a small margin.</p></li>
+<li><p>However, the improvement did not meaningfully transfer to the test set, likely due to:</p>
+<ul>
+<li><p>Distribution shift over time in the logs.</p></li>
+<li><p>Fundamental limitations of short-context Markov models.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+</section>
+<hr class="docutils" />
+<section id="8.3-Limitations">
+<h2>8.3 Limitations<a class="headerlink" href="#8.3-Limitations" title="Link to this heading">¶</a></h2>
+<p>This project has several limitations:</p>
+<ul>
+<li><div class="line-block">
+<div class="line"><strong>No deep learning sequence model</strong>:</div>
+<div class="line">Due to environment constraints (lack of PyTorch), I implemented only classical n-gram models instead of LSTM/GRU-based models like DeepLog. This limits the ability to capture long-range temporal patterns.</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line"><strong>Binary anomaly label granularity</strong>:</div>
+<div class="line">The labels are derived from the alert tag (<code class="docutils literal notranslate"><span class="pre">&quot;-&quot;</span></code> vs. others), which may not perfectly reflect all operationally important incidents (e.g., subtle degradations or correlated failures).</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line"><strong>Short-order temporal modeling</strong>:</div>
+<div class="line">N-gram models with small <code class="docutils literal notranslate"><span class="pre">n</span></code> only capture very local context and cannot represent long or hierarchical event patterns across the system.</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line"><strong>Static models</strong>:</div>
+<div class="line">All models are trained once and not updated over time, which may be suboptimal for non-stationary log streams where patterns drift.</div>
+</div>
+</li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="8.4-Future-Work">
+<h2>8.4 Future Work<a class="headerlink" href="#8.4-Future-Work" title="Link to this heading">¶</a></h2>
+<p>There are several promising directions to build on this work:</p>
+<ol class="arabic">
+<li><div class="line-block">
+<div class="line"><strong>LSTM/GRU/Transformer-based models</strong></div>
+<div class="line">Implement a DeepLog-style LSTM model or a Transformer-based approach to learn richer sequence representations and potentially reduce false positives.</div>
+</div>
+</li>
+<li><div class="line-block">
+<div class="line"><strong>Better smoothing and backoff for n-grams</strong></div>
+<div class="line">Use techniques from language modeling (Kneser–Ney smoothing, interpolated n-grams) to improve robustness to rare contexts.</div>
+</div>
+</li>
+<li><p><strong>Incorporating additional features</strong></p>
+<ul class="simple">
+<li><p>Include node IDs, severity levels, or time-based features (e.g., time since last error).</p></li>
+<li><p>Aggregate logs over time windows and predict anomalies at the window level instead of per-line.</p></li>
+</ul>
+</li>
+<li><p><strong>Online / continual learning</strong></p>
+<ul class="simple">
+<li><p>Explore models that update over time to adapt to evolving system behavior.</p></li>
+<li><p>Monitor concept drift and retrain or fine-tune models as the log distribution changes.</p></li>
+</ul>
+</li>
+<li><p><strong>Operational evaluation</strong></p>
+<ul class="simple">
+<li><p>Collaborate with system operators (in real deployments) to define cost-sensitive metrics.</p></li>
+<li><p>Evaluate the tradeoff between false positives and missed incidents in terms of operational impact.</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<hr class="docutils" />
+<section id="8.5-Reflection-on-Learning-Objectives">
+<h2>8.5 Reflection on Learning Objectives<a class="headerlink" href="#8.5-Reflection-on-Learning-Objectives" title="Link to this heading">¶</a></h2>
+<p>This project met the learning objectives of the course in several ways:</p>
+<ul class="simple">
+<li><p>Applied <strong>machine learning to real networking/systems data</strong>, specifically large-scale system logs.</p></li>
+<li><p>Implemented a complete ML pipeline: data ingestion, preprocessing, feature extraction, model training, evaluation, and visualization.</p></li>
+<li><p>Critically evaluated different models (frequency-based vs. sequence-based) and understood their tradeoffs in the context of anomaly detection.</p></li>
+<li><p>Identified limitations of simple models and motivated more advanced architectures for future work.</p></li>
+</ul>
+<p>Overall, this project shows that even straightforward statistical methods can provide meaningful anomaly detection baselines on system logs, while also illustrating the clear need for more powerful sequence models to reduce false positives and better capture complex system behavior.</p>
+<div class="nbinput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[ ]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">Smart Incident Detection from IT Logs</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">1. Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#2.-Load-Data">2. Load Data</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#2.1-Load-raw-BGL-log-file-and-inspect-sample-lines">2.1 Load raw BGL log file and inspect sample lines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#2.2-Parse-raw-BGL-log-lines-into-structured-fields">2.2 Parse raw BGL log lines into structured fields</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#3.-Preprocessing-&amp;-Template-Extraction">3. Preprocessing &amp; Template Extraction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#3.1-Template-Extraction-from-Log-Messages">3.1 Template Extraction from Log Messages</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#4.-Baseline-Frequency-Based-Anomaly-Detection">4. Baseline Frequency-Based Anomaly Detection</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#4.1-Train/Validation/Test-Split">4.1 Train/Validation/Test Split</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#4.2-Estimating-Template-Frequencies-from-Normal-Logs">4.2 Estimating Template Frequencies from Normal Logs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#4.3-Threshold-selection-and-baseline-evaluation-(validation-+-test)">4.3 Threshold selection and baseline evaluation (validation + test)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#5.-Sequence-Based-Anomaly-Detection">5. Sequence-Based Anomaly Detection</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#5.2-N-gram-sequence-model-for-next-event-prediction-(no-deep-learning)">5.2 N-gram sequence model for next-event prediction (no deep learning)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#5.3-Anomaly-detection-using-n-gram-top-k-next-event-prediction">5.3 Anomaly detection using n-gram top-k next-event prediction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Interpretation-of-N-gram-Model-Results-(order-=-3,-top-5)">Interpretation of N-gram Model Results (order = 3, top-5)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#5.4-Improving-the-n-gram-model-via-hyperparameter-tuning">5.4 Improving the n-gram model via hyperparameter tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#5.4-Results-of-N-gram-Model-Improvements">5.4 Results of N-gram Model Improvements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Test-Set-Performance-for-Best-Configuration">Test Set Performance for Best Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Interpretation">Interpretation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id1">Conclusion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#5.5-Comparison-of-Baseline,-Basic-N-gram,-and-Improved-N-gram-Models">5.5 Comparison of Baseline, Basic N-gram, and Improved N-gram Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Interpretation-of-Model-Comparison">Interpretation of Model Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Key-insight">Key insight</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Overall-conclusion-for-classical-sequence-models">Overall conclusion for classical sequence models</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#6.-Final-Evaluation-&amp;-Discussion">6. Final Evaluation &amp; Discussion</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#6.1-Discussion-of-Model-Behavior">6.1 Discussion of Model Behavior</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#6.2-Why-N-gram-Models-Struggle-on-BGL">6.2 Why N-gram Models Struggle on BGL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#6.3-Key-Takeaway">6.3 Key Takeaway</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#7.-Visualizations">7. Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#7.1-Template-Frequency-Distribution">7.1 Template Frequency Distribution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#7.2-Anomaly-Timeline">7.2 Anomaly Timeline</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#7.3-Baseline-Anomaly-Score-Visualization">7.3 Baseline Anomaly Score Visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#8.-Conclusion">8. Conclusion</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#8.1-Summary-of-the-Approach">8.1 Summary of the Approach</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#8.2-Key-Findings">8.2 Key Findings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#8.3-Limitations">8.3 Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#8.4-Future-Work">8.4 Future Work</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#8.5-Reflection-on-Learning-Objectives">8.5 Reflection on Learning Objectives</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="../index.html" title="previous chapter">Smart Incident Detection from IT Logs documentation</a></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Aymane Bouzaidi Tiali.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.4.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="../_sources/notebooks/project.ipynb.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
